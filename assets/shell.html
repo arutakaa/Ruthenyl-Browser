@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="id" data-window-focused="true">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ruthenyl Shell</title>
+  <link rel="stylesheet" href="/shell.css">
+</head>
+<body>
+  <div class="shell-root" id="shell-root">
+    <header class="topbar" id="topbar">
+      <div class="topbar-left" role="toolbar" aria-label="Kontrol navigasi">
+        <button
+          type="button"
+          class="top-icon-btn top-icon-btn--wide"
+          id="btn-sidebar"
+          aria-label="Tampilkan atau sembunyikan sidebar"
+          aria-expanded="false"
+          title="Sidebar Ruang Kerja (Ctrl+B)"
+        >
+          <svg class="icon-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="16" rx="2.5"></rect>
+            <line x1="9" y1="4" x2="9" y2="20"></line>
+          </svg>
+          <svg class="icon-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 9l6 6 6-6"></path>
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          class="top-icon-btn"
+          id="btn-back"
+          aria-label="Kembali"
+          title="Kembali (Alt+Left)"
+          disabled
+        >
+          <svg class="icon-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M15 18l-6-6 6-6"></path>
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          class="top-icon-btn"
+          id="btn-forward"
+          aria-label="Maju"
+          title="Maju (Alt+Right)"
+          disabled
+        >
+          <svg class="icon-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 6l6 6-6 6"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div class="drag-shoulder" data-drag-region="true" aria-hidden="true"></div>
+
+      <form class="url-pill" id="address-form" role="search" autocomplete="off">
+        <span class="url-spacer" aria-hidden="true"></span>
+
+        <div class="url-center-group">
+          <span class="security-badge" id="security-badge" aria-hidden="true">
+            <svg id="icon-search" class="icon-12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="7" cy="7" r="4.6"></circle>
+              <path d="M10.4 10.4L13.5 13.5"></path>
+            </svg>
+            <svg id="icon-lock" class="icon-12" viewBox="0 0 20 20" fill="currentColor" hidden>
+              <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"></path>
+            </svg>
+            <svg id="icon-warn" class="icon-12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" hidden>
+              <path d="M8 2.4 14 13H2L8 2.4Z"></path>
+              <line x1="8" y1="6.3" x2="8" y2="9.3"></line>
+              <circle cx="8" cy="11.3" r="0.6" fill="currentColor"></circle>
+            </svg>
+            <span class="security-chip" id="security-chip" hidden>HTTP</span>
+          </span>
+
+          <div class="origin-readout" id="origin-readout">
+            <span class="origin-domain is-placeholder" id="origin-domain">Cari di Google atau masukkan URL</span>
+            <span class="origin-path" id="origin-path"></span>
+          </div>
+
+          <label class="sr-only" for="address-input">Alamat URL atau kata kunci</label>
+          <input
+            type="text"
+            class="address-input"
+            id="address-input"
+            placeholder="Cari di Google atau masukkan URL"
+            spellcheck="false"
+            autocapitalize="off"
+            autocomplete="off"
+          >
+        </div>
+
+        <button
+          type="button"
+          class="url-reload-btn"
+          id="btn-reload"
+          aria-label="Muat ulang halaman"
+          title="Muat ulang (Ctrl+R)"
+        >
+          <svg id="icon-reload" class="icon-14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+          </svg>
+          <svg id="icon-stop" class="icon-14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" hidden>
+            <line x1="4.5" y1="4.5" x2="11.5" y2="11.5"></line>
+            <line x1="11.5" y1="4.5" x2="4.5" y2="11.5"></line>
+          </svg>
+        </button>
+      </form>
+
+      <div class="drag-shoulder" data-drag-region="true" aria-hidden="true"></div>
+
+      <div class="topbar-right">
+        <button
+          type="button"
+          class="top-icon-btn"
+          id="btn-share"
+          aria-label="Salin tautan halaman"
+          title="Salin tautan halaman"
+        >
+          <svg id="icon-share" class="icon-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+          </svg>
+          <svg id="icon-share-check" class="icon-16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+            <path d="M3.5 8.5 6.5 11.5 12.5 4.8"></path>
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          class="top-icon-btn"
+          id="btn-new-tab"
+          aria-label="Tab baru (Ctrl+T)"
+          title="Tab baru (Ctrl+T)"
+        >
+          <svg class="icon-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 4v16m8-8H4"></path>
+          </svg>
+        </button>
+
+        <div class="caption-controls" role="group" aria-label="Kontrol jendela">
+          <button type="button" class="caption-btn" id="btn-minimize" aria-label="Perkecil" title="Perkecil">
+            <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+              <line x1="0" y1="5" x2="10" y2="5"></line>
+            </svg>
+          </button>
+
+          <button type="button" class="caption-btn" id="btn-maximize" aria-label="Perbesar" title="Perbesar">
+            <svg id="icon-maximize" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+              <rect x="0.5" y="0.5" width="9" height="9"></rect>
+            </svg>
+            <svg id="icon-restore" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true" hidden>
+              <path d="M2.5 2.5V0.5H9.5V7.5H7.5"></path>
+              <rect x="0.5" y="2.5" width="7" height="7"></rect>
+            </svg>
+          </button>
+
+          <button type="button" class="caption-btn caption-btn--close" id="btn-close" aria-label="Tutup" title="Tutup">
+            <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+              <line x1="0.5" y1="0.5" x2="9.5" y2="9.5"></line>
+              <line x1="9.5" y1="0.5" x2="0.5" y2="9.5"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div class="tabbar" id="tabbar">
+      <div class="dark-tab-shelf">
+        <div class="tab-list no-scrollbar" id="tab-list" role="tablist" aria-orientation="horizontal" aria-label="Tab terbuka"></div>
+      </div>
+
+      <div class="tabbar-right">
+        <button type="button" class="shelf-action-btn" id="btn-nav-drawer" aria-expanded="false" title="Buka panel navigasi">
+          <svg class="icon-14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M4 6h16M4 12h10M4 18h14"></path>
+          </svg>
+          <span class="shelf-action-label">Navigation</span>
+        </button>
+
+        <button type="button" class="shelf-action-btn" id="btn-bookmarks" aria-expanded="false" title="Buka daftar Bookmarks">
+          <svg class="icon-14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.3 6.8 19l1-5.8L3.6 9.1l5.8-.8L12 3z"></path>
+          </svg>
+          <span class="shelf-action-label">Bookmarks</span>
+        </button>
+
+        <button type="button" class="profile-avatar-btn" id="btn-profile" aria-expanded="false" aria-controls="sidebar" aria-label="Profil dan pengaturan" title="Profil Ruthenyl (Budi)">B</button>
+      </div>
+
+      <div class="loading-seam" id="loading-seam"></div>
+    </div>
+
+    <aside class="sidebar" id="sidebar" aria-label="Ruang Kerja" hidden>
+      <div class="sidebar-scroll">
+        <div id="sidebar-default-view">
+          <div class="sidebar-section" id="panel-workspace">
+            <h2 class="sidebar-heading">Ruang Kerja</h2>
+            <div class="sidebar-nav-list">
+              <button type="button" class="sidebar-item" data-nav-url="browser://newtab">Beranda</button>
+              <button type="button" class="sidebar-item" id="sidebar-new-tab-btn">Tab Baru</button>
+            </div>
+          </div>
+
+          <div class="sidebar-section" id="panel-bookmarks">
+            <h2 class="sidebar-heading" id="bookmarks-heading" tabindex="-1">Bookmarks</h2>
+            <div class="sidebar-nav-list">
+              <button type="button" class="sidebar-item" data-nav-url="http://browser.localhost/blog">Ruthenyl Blog</button>
+              <button type="button" class="sidebar-item" data-nav-url="https://mail.google.com">Gmail</button>
+              <button type="button" class="sidebar-item" data-nav-url="https://github.com">GitHub</button>
+              <button type="button" class="sidebar-item" data-nav-url="https://www.notion.so">Notion</button>
+              <button type="button" class="sidebar-item" data-nav-url="https://www.figma.com">Figma</button>
+              <button type="button" class="sidebar-item" data-nav-url="https://dribbble.com">Dribbble</button>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <h2 class="sidebar-heading">Tab Terbuka</h2>
+            <div class="sidebar-tab-list" id="sidebar-tab-list"></div>
+          </div>
+        </div>
+
+        <section class="sidebar-section profile-panel" id="panel-profile" aria-label="Profil dan Preferensi" hidden>
+          <div class="profile-panel-head">
+            <h2 class="sidebar-heading">Profil</h2>
+            <button type="button" class="profile-close-btn" id="profile-close-btn" aria-label="Tutup panel profil" title="Tutup">
+              <svg class="icon-12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <path d="M4 4l8 8M12 4l-8 8"></path>
+              </svg>
+            </button>
+          </div>
+
+          <div class="profile-card">
+            <span class="profile-card-avatar" id="profile-panel-avatar" aria-hidden="true">B</span>
+            <div class="profile-card-meta">
+              <span class="profile-card-name" id="profile-panel-name">Budi</span>
+              <span class="profile-card-role">Profil Lokal</span>
+            </div>
+          </div>
+
+          <form class="profile-form" id="profile-form" autocomplete="off">
+            <div class="profile-field">
+              <label class="profile-label" for="profile-name-input">Nama tampilan</label>
+              <input
+                type="text"
+                class="profile-input"
+                id="profile-name-input"
+                maxlength="32"
+                placeholder="Nama Anda"
+              >
+            </div>
+
+            <div class="profile-field">
+              <label class="profile-label" for="engine-select">Mesin pencari default</label>
+              <select class="profile-select" id="engine-select">
+                <option value="google">Google</option>
+                <option value="duckduckgo">DuckDuckGo</option>
+                <option value="bing">Bing</option>
+              </select>
+            </div>
+
+            <div class="profile-actions">
+              <button type="submit" class="profile-save-btn" id="profile-save-btn">Simpan</button>
+              <span class="profile-status" id="profile-status" role="status" aria-live="polite"></span>
+            </div>
+          </form>
+
+          <div class="profile-quick-links">
+            <button type="button" class="sidebar-item" data-nav-url="browser://newtab">Buka Beranda</button>
+            <button type="button" class="sidebar-item" id="profile-new-tab-btn">Tab Baru</button>
+          </div>
+        </section>
+      </div>
+
+      <div class="sidebar-footer">Ruthenyl Engine • Rust + WebView2</div>
+      <div class="sidebar-resizer" id="sidebar-resizer" aria-hidden="true"></div>
+    </aside>
+
+    <main class="viewport-frame" id="viewport-frame" aria-hidden="true"></main>
+  </div>
+  <script src="/shell.js"></script>
+</body>
+</html>
