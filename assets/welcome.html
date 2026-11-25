@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="id" data-theme="arctic">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Selamat Datang di Ruthenium</title>
+  <link rel="icon" type="image/svg+xml" href="/ruthenium-logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <script>
+    (() => {
+      try {
+        const saved = localStorage.getItem("ruthenium_ntp_theme_v2");
+        if (saved === "arctic" || saved === "midnight" || saved === "aurora") {
+          document.documentElement.dataset.theme = saved;
+        }
+      } catch (_) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="/welcome.css?v=1">
+  <script defer src="/welcome.js?v=1"></script>
+</head>
+<body>
+  <main class="welcome-viewport">
+    <section class="welcome-card" aria-label="Pengaturan awal Ruthenium Browser">
+      <header class="welcome-topbar">
+        <div class="welcome-progress-wrap">
+          <span class="welcome-step-label" id="welcome-step-label">Langkah 1 dari 2</span>
+          <div class="welcome-progress-track" aria-hidden="true">
+            <span class="welcome-progress-seg is-active" id="progress-seg-1"></span>
+            <span class="welcome-progress-seg" id="progress-seg-2"></span>
+          </div>
+        </div>
+        <button type="button" class="btn-ghost" id="btn-welcome-skip-top">Lewati</button>
+      </header>
+
+      <!-- Langkah 1: Sambutan & Browser Default -->
+      <div class="welcome-step" id="welcome-step-1">
+        <div class="welcome-hero">
+          <div class="welcome-logo-wrap" aria-hidden="true">
+            <div class="welcome-logo-glow"></div>
+            <img class="welcome-logo" src="/ruthenium-logo-3d.svg" width="72" height="72" alt="">
+          </div>
+          <h1 class="welcome-title">Selamat datang di Ruthenium</h1>
+          <p class="welcome-subtitle">
+            Browser desktop yang cepat, bersih, dan langsung siap dipakai tanpa gangguan iklan.
+          </p>
+        </div>
+
+        <div class="welcome-default-box" id="welcome-default-box">
+          <div class="default-box-left">
+            <span class="default-box-icon" aria-hidden="true">
+              <svg id="icon-default-globe" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="M3.6 9h16.8M3.6 15h16.8"></path>
+                <path d="M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"></path>
+              </svg>
+              <svg id="icon-default-check" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" hidden>
+                <path d="M20 6 9 17l-5-5"></path>
+              </svg>
+            </span>
+            <div class="default-box-copy">
+              <span class="default-box-title">Browser Default Windows</span>
+              <span class="default-box-desc" id="welcome-default-desc">
+                Buka tautan dari aplikasi lain langsung di Ruthenium
+              </span>
+            </div>
+          </div>
+          <button type="button" class="btn-outline" id="btn-welcome-default">Jadikan Default</button>
+        </div>
+
+        <p class="welcome-adblock-note">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"></path>
+            <path d="m9 12 2 2 4-4"></path>
+          </svg>
+          <span>Pemblokir iklan agresif aktif otomatis di latar belakang.</span>
+        </p>
+
+        <footer class="welcome-footer">
+          <button type="button" class="btn-secondary" id="btn-step1-skip">Lewati</button>
+          <button type="button" class="btn-primary" id="btn-step1-next">Lanjut</button>
+        </footer>
+      </div>
+
+      <!-- Langkah 2: Tema & Mesin Pencari -->
+      <div class="welcome-step" id="welcome-step-2" hidden>
+        <div class="step2-header">
+          <h1 class="welcome-title welcome-title--compact">Sesuaikan tampilan dan pencarian</h1>
+          <p class="welcome-subtitle">
+            Pilihan langsung diterapkan dan bisa diubah kapan saja di Setelan.
+          </p>
+        </div>
+
+        <div class="welcome-group">
+          <span class="group-label">Tema tampilan</span>
+          <div class="theme-grid" role="group" aria-label="Pilih tema tampilan">
+            <button type="button" class="theme-card is-selected" data-welcome-theme="arctic" aria-pressed="true">
+              <span class="theme-preview theme-preview--arctic" aria-hidden="true">
+                <span class="tp-bar">
+                  <span class="tp-tab is-active"></span>
+                  <span class="tp-tab"></span>
+                </span>
+                <span class="tp-url"></span>
+                <span class="tp-body"></span>
+              </span>
+              <span class="theme-meta">
+                <span class="theme-name">Arctic</span>
+                <span class="theme-desc">Terang dan bersih</span>
+              </span>
+            </button>
+
+            <button type="button" class="theme-card" data-welcome-theme="midnight" aria-pressed="false">
+              <span class="theme-preview theme-preview--midnight" aria-hidden="true">
+                <span class="tp-bar">
+                  <span class="tp-tab is-active"></span>
+                  <span class="tp-tab"></span>
+                </span>
+                <span class="tp-url"></span>
+                <span class="tp-body"></span>
+              </span>
+              <span class="theme-meta">
+                <span class="theme-name">Midnight</span>
+                <span class="theme-desc">Gelap fokus</span>
+              </span>
+            </button>
+
+            <button type="button" class="theme-card" data-welcome-theme="aurora" aria-pressed="false">
+              <span class="theme-preview theme-preview--aurora" aria-hidden="true">
+                <span class="tp-bar">
+                  <span class="tp-tab is-active"></span>
+                  <span class="tp-tab"></span>
+                </span>
+                <span class="tp-url"></span>
+                <span class="tp-body"></span>
+              </span>
+              <span class="theme-meta">
+                <span class="theme-name">Aurora</span>
+                <span class="theme-desc">Gelap ambient</span>
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div class="welcome-group">
+          <span class="group-label">Mesin pencari default</span>
+          <div class="engine-grid" role="group" aria-label="Pilih mesin pencari default">
+            <button type="button" class="engine-card is-selected" data-welcome-engine="google" aria-pressed="true">
+              <span class="engine-badge" aria-hidden="true">G</span>
+              <span class="engine-label">Google</span>
+            </button>
+
+            <button type="button" class="engine-card" data-welcome-engine="duckduckgo" aria-pressed="false">
+              <span class="engine-badge" aria-hidden="true">D</span>
+              <span class="engine-label">DuckDuckGo</span>
+            </button>
+
+            <button type="button" class="engine-card" data-welcome-engine="bing" aria-pressed="false">
+              <span class="engine-badge" aria-hidden="true">B</span>
+              <span class="engine-label">Bing</span>
+            </button>
+          </div>
+        </div>
+
+        <footer class="welcome-footer welcome-footer--split">
+          <button type="button" class="btn-secondary" id="btn-step2-back">Kembali</button>
+          <div class="welcome-footer-actions">
+            <button type="button" class="btn-ghost" id="btn-step2-skip">Lewati</button>
+            <button type="button" class="btn-primary" id="btn-step2-finish">Mulai Browsing</button>
+          </div>
+        </footer>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

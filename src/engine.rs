@@ -9,6 +9,8 @@ use tao::event_loop::EventLoopProxy;
 use tao::window::Window;
 #[cfg(target_os = "windows")]
 use webview2_com::Microsoft::Web::WebView2::Win32::{
+    COREWEBVIEW2_BROWSING_DATA_KINDS, COREWEBVIEW2_BROWSING_DATA_KINDS_CACHE_STORAGE,
+    COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES, COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE,
     COREWEBVIEW2_WEB_RESOURCE_CONTEXT, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
     COREWEBVIEW2_WEB_RESOURCE_CONTEXT_CSP_VIOLATION_REPORT,
     COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_EVENT_SOURCE,
@@ -17,13 +19,14 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_WEB_RESOURCE_CONTEXT_PING, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_SCRIPT,
     COREWEBVIEW2_WEB_RESOURCE_CONTEXT_STYLESHEET, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_WEBSOCKET,
     COREWEBVIEW2_WEB_RESOURCE_CONTEXT_XML_HTTP_REQUEST,
-    COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL, ICoreWebView2_22,
-    ICoreWebView2Environment, ICoreWebView2HttpRequestHeaders,
+    COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL,
+    GetAvailableCoreWebView2BrowserVersionString, ICoreWebView2_13, ICoreWebView2_22,
+    ICoreWebView2Environment, ICoreWebView2HttpRequestHeaders, ICoreWebView2Profile2,
 };
 #[cfg(target_os = "windows")]
-use webview2_com::{WebResourceRequestedEventHandler, take_pwstr};
+use webview2_com::{ClearBrowsingDataCompletedHandler, WebResourceRequestedEventHandler, take_pwstr};
 #[cfg(target_os = "windows")]
-use windows_core::{HSTRING, Interface, PWSTR};
+use windows_core::{HSTRING, Interface, PCWSTR, PWSTR};
 use wry::http::header::{CACHE_CONTROL, CONTENT_TYPE};
 use wry::http::{Request, Response};
 #[cfg(not(target_os = "windows"))]
@@ -38,9 +41,16 @@ use crate::ipc::{AppEvent, TabId, escape_js_string, parse_authenticated_content_
 
 const EMPTY_VIEWPORT_HTML: &[u8] = include_bytes!("../assets/empty_viewport.html");
 const RUTHENIUM_BLOG_HTML: &[u8] = include_bytes!("../assets/ruthenium_blog.html");
+const WELCOME_HTML: &[u8] = include_bytes!("../assets/welcome.html");
+const WELCOME_CSS: &[u8] = include_bytes!("../assets/welcome.css");
+const WELCOME_JS: &[u8] = include_bytes!("../assets/welcome.js");
+const SETTINGS_HTML: &[u8] = include_bytes!("../assets/settings.html");
+const SETTINGS_CSS: &[u8] = include_bytes!("../assets/settings.css");
+const SETTINGS_JS: &[u8] = include_bytes!("../assets/settings.js");
 const NEWTAB_CSS: &[u8] = include_bytes!("../assets/newtab.css");
 const NEWTAB_JS: &[u8] = include_bytes!("../assets/newtab.js");
 const RUTHENIUM_LOGO_SVG: &[u8] = include_bytes!("../assets/ruthenium-logo.svg");
+const RUTHENIUM_LOGO_3D_SVG: &[u8] = include_bytes!("../assets/ruthenium-logo-3d.svg");
 const DARK_VIEWPORT_BG: (u8, u8, u8, u8) = (8, 13, 26, 255);
 const LIGHT_VIEWPORT_BG: (u8, u8, u8, u8) = (248, 250, 252, 255);
 #[cfg(target_os = "windows")]
@@ -49,6 +59,7 @@ const BASE_AGGRESSIVE_COSMETIC_CSS: &str = "ins.adsbygoogle,[id^=\"google_ads_if
 
 pub struct ContentAttachOptions<'a> {
     pub tab_id: TabId,
+    pub initial_url: &'a str,
     #[cfg(target_os = "windows")]
     pub shared_env: &'a ICoreWebView2Environment,
     #[cfg(not(target_os = "windows"))]
@@ -72,6 +83,7 @@ impl ContentEngine {
     ) -> Result<Self, BrowserError> {
         let ContentAttachOptions {
             tab_id,
+            initial_url,
             #[cfg(target_os = "windows")]
             shared_env,
             #[cfg(not(target_os = "windows"))]
@@ -118,7 +130,7 @@ impl ContentEngine {
                     responder.respond(serve_newtab_asset(&req));
                 }
             })
-            .with_url("browser://localhost/newtab")
+            .with_url(initial_url)
             .with_navigation_handler(move |url| {
                 let _ = nav_proxy.send_event(AppEvent::TabNavigated { tab_id, url });
                 true
@@ -246,6 +258,108 @@ impl ContentEngine {
             escape_js_string(theme),
         );
         let _ = self.webview.evaluate_script(&script);
+    }
+
+    pub fn sync_default_browser(&self, is_default: bool) {
+        let script = format!(
+            "if (window.__syncDefaultBrowser) window.__syncDefaultBrowser({});",
+            if is_default { "true" } else { "false" },
+        );
+        let _ = self.webview.evaluate_script(&script);
+    }
+
+    pub fn sync_home_prefs(&self, show_clock: bool, show_shortcuts: bool, suggest_enabled: bool) {
+        let script = format!(
+            "if (window.__syncHomePrefs) window.__syncHomePrefs({{showClock:{show_clock},showShortcuts:{show_shortcuts},suggestEnabled:{suggest_enabled}}});",
+        );
+        let _ = self.webview.evaluate_script(&script);
+    }
+
+    pub fn sync_settings_json(&self, json: &str) {
+        let script = format!(
+            "if (window.__syncSettings) window.__syncSettings(JSON.parse({}));",
+            escape_js_string(json),
+        );
+        let _ = self.webview.evaluate_script(&script);
+    }
+
+    pub fn sync_settings_feedback(&self, msg: &str) {
+        let script = format!(
+            "if (window.__settingsFeedback) window.__settingsFeedback({});",
+            escape_js_string(msg),
+        );
+        let _ = self.webview.evaluate_script(&script);
+    }
+
+    pub fn select_settings_section(&self, section: &str) {
+        let script = format!(
+            "if (window.__selectSettingsSection) window.__selectSettingsSection({});",
+            escape_js_string(section),
+        );
+        let _ = self.webview.evaluate_script(&script);
+    }
+
+    pub fn set_zoom(&self, zoom_percent: u16) {
+        let _ = self.webview.zoom(f64::from(zoom_percent) / 100.0);
+    }
+
+    pub fn set_download_folder(&self, path: &str) {
+        let _ = std::fs::create_dir_all(path);
+        #[cfg(target_os = "windows")]
+        {
+            let core_webview = self.webview.webview();
+            if let Ok(wv13) = core_webview.cast::<ICoreWebView2_13>()
+                && let Ok(profile) = unsafe { wv13.Profile() }
+            {
+                let _ = unsafe { profile.SetDefaultDownloadFolderPath(&HSTRING::from(path)) };
+            }
+        }
+    }
+
+    pub fn clear_browsing_data(&self, cache: bool, cookies: bool, proxy: EventLoopProxy<AppEvent>) {
+        #[cfg(target_os = "windows")]
+        {
+            let mut kind_bits = 0i32;
+            if cache {
+                kind_bits |= COREWEBVIEW2_BROWSING_DATA_KINDS_DISK_CACHE.0
+                    | COREWEBVIEW2_BROWSING_DATA_KINDS_CACHE_STORAGE.0;
+            }
+            if cookies {
+                kind_bits |= COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES.0;
+            }
+            if kind_bits == 0 {
+                let _ = proxy.send_event(AppEvent::BrowsingDataCleared(true));
+                return;
+            }
+
+            let cb_proxy = proxy.clone();
+            let core_webview = self.webview.webview();
+            let res: windows_core::Result<()> = (|| {
+                let wv13: ICoreWebView2_13 = core_webview.cast()?;
+                let profile = unsafe { wv13.Profile()? };
+                let profile2: ICoreWebView2Profile2 = profile.cast()?;
+                let handler = ClearBrowsingDataCompletedHandler::create(Box::new(move |err| {
+                    let _ = cb_proxy.send_event(AppEvent::BrowsingDataCleared(err.is_ok()));
+                    Ok(())
+                }));
+                unsafe {
+                    profile2.ClearBrowsingData(
+                        COREWEBVIEW2_BROWSING_DATA_KINDS(kind_bits),
+                        &handler,
+                    )?;
+                }
+                Ok(())
+            })();
+
+            if res.is_err() {
+                let _ = proxy.send_event(AppEvent::BrowsingDataCleared(false));
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = (cache, cookies);
+            let _ = proxy.send_event(AppEvent::BrowsingDataCleared(true));
+        }
     }
 
     pub fn sync_history_add(&self, query: &str) {
@@ -520,6 +634,22 @@ fn map_resource_context(ctx: COREWEBVIEW2_WEB_RESOURCE_CONTEXT) -> &'static str 
     }
 }
 
+pub fn webview2_runtime_version() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        let mut pwstr = PWSTR::null();
+        if unsafe { GetAvailableCoreWebView2BrowserVersionString(PCWSTR::null(), &mut pwstr) }
+            .is_ok()
+        {
+            let ver = take_pwstr(pwstr);
+            if !ver.trim().is_empty() {
+                return ver;
+            }
+        }
+    }
+    "WebView2".to_string()
+}
+
 pub fn content_data_dir() -> PathBuf {
     env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
@@ -532,8 +662,15 @@ fn serve_newtab_asset(req: &Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
     let (mime, body): (&str, &'static [u8]) = match req.uri().path() {
         "/newtab.css" => ("text/css; charset=utf-8", NEWTAB_CSS),
         "/newtab.js" => ("text/javascript; charset=utf-8", NEWTAB_JS),
+        "/welcome" => ("text/html; charset=utf-8", WELCOME_HTML),
+        "/welcome.css" => ("text/css; charset=utf-8", WELCOME_CSS),
+        "/welcome.js" => ("text/javascript; charset=utf-8", WELCOME_JS),
+        "/settings" => ("text/html; charset=utf-8", SETTINGS_HTML),
+        "/settings.css" => ("text/css; charset=utf-8", SETTINGS_CSS),
+        "/settings.js" => ("text/javascript; charset=utf-8", SETTINGS_JS),
         "/blog" => ("text/html; charset=utf-8", RUTHENIUM_BLOG_HTML),
         "/ruthenium-logo.svg" => ("image/svg+xml", RUTHENIUM_LOGO_SVG),
+        "/ruthenium-logo-3d.svg" => ("image/svg+xml", RUTHENIUM_LOGO_3D_SVG),
         _ => ("text/html; charset=utf-8", EMPTY_VIEWPORT_HTML),
     };
 
@@ -627,6 +764,25 @@ fn build_content_bridge_script(token: &str, adblock_enabled: bool) -> String {
         configurable: false,
         writable: false,
       }},
+      __welcomeComplete: {{
+        value: () => send("welcome:complete"),
+        configurable: false,
+        writable: false,
+      }},
+      __welcomeSetDefaultBrowser: {{
+        value: () => send("welcome:default_browser"),
+        configurable: false,
+        writable: false,
+      }},
+      __settingsCommand: {{
+        value: (cmd) => {{
+          if (typeof cmd === "string" && cmd.trim()) {{
+            send("settings:" + cmd);
+          }}
+        }},
+        configurable: false,
+        writable: false,
+      }},
     }});
   }}
   try {{ delete window.ipc; }} catch (_) {{}}
@@ -671,6 +827,12 @@ fn build_content_bridge_script(token: &str, adblock_enabled: bool) -> String {
         e.preventDefault();
         e.stopPropagation();
         send("key:reload");
+        return;
+      }}
+      if (!e.shiftKey && key === ",") {{
+        e.preventDefault();
+        e.stopPropagation();
+        send("key:open_settings");
         return;
       }}
       if (!e.shiftKey && key >= "1" && key <= "9") {{

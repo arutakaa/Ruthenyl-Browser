@@ -103,25 +103,15 @@
 
   const shellRoot = document.getElementById("shell-root");
   const sidebar = document.getElementById("sidebar");
-  const sidebarDefaultView = document.getElementById("sidebar-default-view");
   const sidebarResizer = document.getElementById("sidebar-resizer");
   const sidebarTabList = document.getElementById("sidebar-tab-list");
   const sidebarNewTabBtn = document.getElementById("sidebar-new-tab-btn");
   const sidebarCloseBtn = document.getElementById("sidebar-close-btn");
-  const switcherBtns = Array.from(document.querySelectorAll("[data-panel-tab]"));
-
-  const settingsPanel = document.getElementById("panel-settings");
-  const themeButtons = Array.from(document.querySelectorAll("[data-shell-theme]"));
-  const engineSelect = document.getElementById("engine-select");
-  const settingsStatus = document.getElementById("settings-status");
   const shellQuickNotes = document.getElementById("shell-quick-notes");
 
   const tabList = document.getElementById("tab-list");
   const btnAdblock = document.getElementById("btn-adblock");
   const adblockCountBadge = document.getElementById("adblock-count-badge");
-  const adblockSwitch = document.getElementById("adblock-switch");
-  const adblockStatusText = document.getElementById("adblock-status-text");
-  const btnAdblockRefresh = document.getElementById("btn-adblock-refresh");
   const btnSidebar = document.getElementById("btn-sidebar");
   const btnSettings = document.getElementById("btn-settings");
   const btnBack = document.getElementById("btn-back");
@@ -183,12 +173,13 @@
     adblockBlockedTotal: 0,
     adblockStatus: "Aktif (Agresif) · Filter dasar siap",
     adblockRefreshing: false,
+    adblockSiteWhitelisted: false,
+    suggestEnabled: true,
+    isDefaultBrowser: false,
   };
 
   let loadingTimer = null;
   let shareCheckTimer = null;
-  let settingsStatusTimer = null;
-  let activeSidebarPanel = "workspace";
   const tabElements = new Map();
   const sidebarTabElements = new Map();
   const omniboxSuggestCache = new Map();
@@ -598,115 +589,42 @@
   };
 
   function renderPanelViews(sidebarOpen) {
-    const isWorkspaceView = sidebarOpen && activeSidebarPanel === "workspace";
-    const isSettingsView = sidebarOpen && activeSidebarPanel === "settings";
-
-    setHidden(sidebarDefaultView, !isWorkspaceView);
-    setHidden(settingsPanel, !isSettingsView);
-
-    for (const btn of switcherBtns) {
-      btn.setAttribute("aria-pressed", String(btn.dataset.panelTab === activeSidebarPanel));
-    }
-
-    btnSidebar.setAttribute("aria-expanded", String(isWorkspaceView));
-    btnSettings.setAttribute("aria-expanded", String(isSettingsView));
+    btnSidebar.setAttribute("aria-expanded", String(Boolean(sidebarOpen)));
 
     const activeTheme = VALID_THEMES.has(currentState.theme) ? currentState.theme : "arctic";
     document.documentElement.dataset.theme = activeTheme;
-    for (const btn of themeButtons) {
-      btn.setAttribute("aria-pressed", String(btn.dataset.shellTheme === activeTheme));
-    }
-
-    const activeEngine = ENGINE_LABELS[currentState.searchEngine]
-      ? currentState.searchEngine
-      : "google";
-    if (document.activeElement !== engineSelect) {
-      engineSelect.value = activeEngine;
-    }
 
     renderAdblockControls();
   }
 
   function renderAdblockControls() {
     const enabled = Boolean(currentState.adblockEnabled);
+    const siteWhitelisted = Boolean(currentState.adblockSiteWhitelisted);
+    const siteActive = enabled && !siteWhitelisted;
     const tabCount = Number(currentState.adblockBlockedTab) || 0;
-    const totalCount = Number(currentState.adblockBlockedTotal) || 0;
-    const refreshing = Boolean(currentState.adblockRefreshing);
-    const statusSummary = typeof currentState.adblockStatus === "string" && currentState.adblockStatus
-      ? currentState.adblockStatus
-      : "Aktif (Agresif) · Filter dasar siap";
 
     if (btnAdblock) {
-      btnAdblock.classList.toggle("is-enabled", enabled);
-      btnAdblock.setAttribute("aria-pressed", String(enabled));
-      const label = enabled
-        ? (tabCount > 0
-          ? `Pemblokir iklan agresif aktif (${tabCount} diblokir di tab ini)`
-          : "Pemblokir iklan agresif aktif")
-        : "Pemblokir iklan nonaktif";
+      btnAdblock.classList.toggle("is-enabled", siteActive);
+      btnAdblock.setAttribute("aria-pressed", String(siteActive));
+      let label = "Pemblokir iklan nonaktif secara global";
+      if (enabled && siteWhitelisted) {
+        label = "Pemblokir iklan dijeda untuk situs ini (klik untuk aktifkan)";
+      } else if (enabled && tabCount > 0) {
+        label = `Pemblokir iklan aktif (${tabCount} diblokir di tab ini, klik untuk kecualikan situs ini)`;
+      } else if (enabled) {
+        label = "Pemblokir iklan agresif aktif (klik untuk kecualikan situs ini)";
+      }
       btnAdblock.setAttribute("aria-label", label);
       btnAdblock.setAttribute("title", label);
     }
 
     if (adblockCountBadge) {
-      const showCount = enabled && tabCount > 0;
+      const showCount = siteActive && tabCount > 0;
       setHidden(adblockCountBadge, !showCount);
       if (showCount) {
         adblockCountBadge.textContent = tabCount > 99 ? "99+" : String(tabCount);
       }
     }
-
-    if (adblockSwitch) {
-      adblockSwitch.setAttribute("aria-checked", String(enabled));
-    }
-
-    if (adblockStatusText) {
-      if (!enabled) {
-        adblockStatusText.textContent = "Nonaktif · Perlindungan iklan dijeda";
-      } else if (totalCount > 0) {
-        adblockStatusText.textContent = `${statusSummary} · ${totalCount} diblokir sesi ini`;
-      } else {
-        adblockStatusText.textContent = statusSummary;
-      }
-    }
-
-    if (btnAdblockRefresh) {
-      btnAdblockRefresh.disabled = refreshing;
-      btnAdblockRefresh.textContent = refreshing
-        ? "Memperbarui 10 daftar filter..."
-        : "Perbarui 10 daftar filter";
-    }
-  }
-
-  function openSidebarPanel(panel) {
-    const sidebarOpen = currentState.sidebarWidth > 0 && !currentState.isCompact;
-    if (sidebarOpen && activeSidebarPanel === panel) {
-      post("sidebar:close");
-      return;
-    }
-    activeSidebarPanel = panel;
-    if (sidebarOpen) {
-      renderPanelViews(true);
-    } else {
-      post("sidebar:open");
-    }
-  }
-
-  function flashSettingsStatus(text) {
-    settingsStatus.textContent = text;
-    clearTimeout(settingsStatusTimer);
-    settingsStatusTimer = setTimeout(() => {
-      settingsStatus.textContent = "";
-    }, 1800);
-  }
-
-  function setThemeMode(themeName) {
-    const theme = VALID_THEMES.has(themeName) ? themeName : "arctic";
-    currentState.theme = theme;
-    saveChromePrefs();
-    renderPanelViews(currentState.sidebarWidth > 0 && !currentState.isCompact);
-    post(`theme:${theme}`);
-    flashSettingsStatus(THEME_LABELS[theme]);
   }
 
   window.__shellSync = (next) => {
@@ -769,52 +687,15 @@
     btnMaximize.setAttribute("title", maxLabel);
   };
 
-  function toggleAdblockState() {
-    const nextEnabled = !Boolean(currentState.adblockEnabled);
-    currentState.adblockEnabled = nextEnabled;
-    saveChromePrefs();
-    renderAdblockControls();
-    post(nextEnabled ? "prefs:adblock:on" : "prefs:adblock:off");
-    flashSettingsStatus(nextEnabled ? "Pemblokir iklan diaktifkan" : "Pemblokir iklan dinonaktifkan");
-  }
-
   if (btnAdblock) {
-    btnAdblock.addEventListener("click", toggleAdblockState);
-  }
-  if (adblockSwitch) {
-    adblockSwitch.addEventListener("click", toggleAdblockState);
-  }
-  if (btnAdblockRefresh) {
-    btnAdblockRefresh.addEventListener("click", () => {
-      currentState.adblockRefreshing = true;
-      renderAdblockControls();
-      post("adblock:refresh");
-      flashSettingsStatus("Mengunduh filter uAssets & EasyList...");
+    btnAdblock.addEventListener("click", () => {
+      post("adblock:toggle_site");
     });
   }
 
-  btnSidebar.addEventListener("click", () => openSidebarPanel("workspace"));
-  btnSettings.addEventListener("click", () => openSidebarPanel("settings"));
+  btnSidebar.addEventListener("click", () => post("sidebar:toggle"));
+  btnSettings.addEventListener("click", () => post("settings:open"));
   sidebarCloseBtn.addEventListener("click", () => post("sidebar:close"));
-
-  for (const btn of switcherBtns) {
-    btn.addEventListener("click", () => {
-      activeSidebarPanel = btn.dataset.panelTab || "workspace";
-      renderPanelViews(currentState.sidebarWidth > 0 && !currentState.isCompact);
-    });
-  }
-
-  for (const btn of themeButtons) {
-    btn.addEventListener("click", () => setThemeMode(btn.dataset.shellTheme));
-  }
-
-  engineSelect.addEventListener("change", () => {
-    const nextEngine = ENGINE_LABELS[engineSelect.value] ? engineSelect.value : "google";
-    currentState.searchEngine = nextEngine;
-    saveChromePrefs();
-    post(`prefs:engine:${nextEngine}`);
-    flashSettingsStatus("Mesin pencari disimpan");
-  });
 
   sidebarNewTabBtn.addEventListener("click", () => post("tab:new"));
 
@@ -1103,7 +984,7 @@
       closeOmniboxPopup({ notifyHost: true });
     }
 
-    if (exactCached) {
+    if (!currentState.suggestEnabled || exactCached) {
       return;
     }
 
@@ -1364,8 +1245,12 @@
       }
       if (!e.shiftKey && lower === "b") {
         e.preventDefault();
-        activeSidebarPanel = "workspace";
         post("sidebar:toggle");
+        return;
+      }
+      if (!e.shiftKey && key === ",") {
+        e.preventDefault();
+        post("settings:open");
         return;
       }
       if (!e.shiftKey && lower === "r") {
@@ -1412,18 +1297,8 @@
 
   const savedPrefs = loadChromePrefs();
   const initialTheme = savedPrefs ? savedPrefs.theme : "arctic";
-  if (savedPrefs && savedPrefs.searchEngine) {
-    currentState.searchEngine = savedPrefs.searchEngine;
-    post(`prefs:engine:${savedPrefs.searchEngine}`);
-  }
-  if (savedPrefs && typeof savedPrefs.adblockEnabled === "boolean") {
-    currentState.adblockEnabled = savedPrefs.adblockEnabled;
-  }
-  post(currentState.adblockEnabled ? "prefs:adblock:on" : "prefs:adblock:off");
   currentState.theme = initialTheme;
   document.documentElement.dataset.theme = initialTheme;
-  saveChromePrefs();
-  post(`theme:${initialTheme}`);
   renderAdblockControls();
 
   post("shell:ready");

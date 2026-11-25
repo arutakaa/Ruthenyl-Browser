@@ -60,6 +60,7 @@
 
   let currentEngineIndex = 0;
   let toastTimer = null;
+  let suggestEnabled = true;
 
   const suggestCache = new Map();
   let suggestTimer = null;
@@ -477,7 +478,7 @@
       closeSuggestions();
     }
 
-    if (exactCached) {
+    if (!suggestEnabled || exactCached) {
       return;
     }
 
@@ -984,6 +985,21 @@
 
   window.__syncSearchEngine = (engine) => {
     setSearchEngineByKey(engine, { notifyHost: false, announce: false });
+  };
+
+  window.__syncHomePrefs = (prefs) => {
+    if (!prefs || typeof prefs !== "object") return;
+    if (typeof prefs.showClock === "boolean") {
+      const clockRow = document.querySelector(".ntp-top-row");
+      setHidden(clockRow, !prefs.showClock);
+    }
+    if (typeof prefs.showShortcuts === "boolean") {
+      const shortcutsSection = document.querySelector(".ntp-shortcuts");
+      setHidden(shortcutsSection, !prefs.showShortcuts);
+    }
+    if (typeof prefs.suggestEnabled === "boolean") {
+      suggestEnabled = prefs.suggestEnabled;
+    }
   };
 
   window.__syncTheme = (themeOrDark) => {

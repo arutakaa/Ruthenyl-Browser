@@ -210,8 +210,8 @@ The window shell frames a native WebView2 content surface below a two-row `92px`
 - **Content viewport rect:** occupies `x = sidebar_width`, `y = 92px`, `width = window_width - sidebar_width`, `height = window_height - 92px`.
 - **Two-row Ruthenium Chrome (`44px` Row 1 + `48px` Row 2):**
   - **Row 1 (Floating Pill Tab Strip, `44px`):** Floating `12px`-radius pill tabs (`#080d1a` Midnight / `#e8eef6` Arctic / `#070913` Aurora frame; active pill in `#131d36` / `#ffffff` / `#151c38` with subtle border), `+` New Tab pill (`8px` radius), drag strip, and native Windows 11 caption controls (`44px x 38px` Minimize, Maximize/Restore, `#e11d48`-hover Close).
-  - **Row 2 (Rounded Navigation & Pill Omnibox Toolbar, `48px`):** Rounded top-left/top-right toolbar (`16px` top radii, `#0d1426` / `#f8fafc` / `#0c1021`) containing Back (`Alt+Left`), Forward (`Alt+Right`), Reload/Stop (`Ctrl+R`/`Escape`), full-width `9999px`-radius Pill Omnibox with accent search/security badge and trailing Copy URL trigger, always-on aggressive Adblock Shield toggle (`#btn-adblock`) showing real per-tab blocked request counts (network requests + popups) with smart surrogate responses, document-start/generic cosmetic hiding, and YouTube ad skipping, Side Panel toggle (`Ctrl+B`), and gear Settings trigger (`#btn-settings`).
-  - **Collapsible Side Panel (`0px` default -> `220px` when toggled, `180px..320px` resizable):** Houses switchable views for `Panel` (Open Tabs showing website favicon + title + domain, and persistent `Catatan Cepat` scratchpad; bookmarks/Markah omitted) and `Setelan` (`Arctic` [Default] | `Midnight` | `Aurora` 3-theme selector + Default Search Engine selector + real `adblock-rust` 10-list aggressive pack covering `uAssets` + annoyances + cookies + `EasyList` + `EasyPrivacy` + `Peter Lowe` + `ABPindo` switch & list refresh action); auto-closes cleanly below `640px` window width.
+  - **Row 2 (Rounded Navigation & Pill Omnibox Toolbar, `48px`):** Rounded top-left/top-right toolbar (`16px` top radii, `#0d1426` / `#f8fafc` / `#0c1021`) containing Back (`Alt+Left`), Forward (`Alt+Right`), Reload/Stop (`Ctrl+R`/`Escape`), full-width `9999px`-radius Pill Omnibox with accent search/security badge and trailing Copy URL trigger, per-site Adblock Shield toggle (`#btn-adblock`) showing real per-tab blocked request counts (toggles whitelist for active domain on external sites, or opens `browser://settings#privacy` on internal pages), Side Panel toggle (`Ctrl+B`), and gear Settings trigger (`#btn-settings`, opens/focuses `browser://settings`, `Ctrl+,`).
+  - **Collapsible Side Panel (`0px` default -> `220px` when toggled, `180px..320px` resizable):** Dedicated to Open Tabs (website favicon + title + domain) and persistent `Catatan Cepat` scratchpad; auto-closes cleanly below `640px` window width.
 - **Overlay layering above WebView2:** because a child WebView2 renders in its own native `HWND` on Windows, transient overlays that overlap the content viewport (such as the owned transparent `OmniboxPopup` Google search suggestion window and future dialogs/popovers) render in an elevated owned host surface/webview layer above content `HWND`s so dropdowns with per-pixel alpha corners and shadows are never clipped behind web page content.
 
 ### Auxiliary viewport overlays
@@ -282,7 +282,7 @@ Tabs live in the left vertical rail by default so 20+ open tabs remain readable 
 
 - **Missing favicon fallback:** pages without a favicon (`about:blank`, `browser://settings`, local dev ports) render a `16px x 16px` `--bg-subtle` tile (`--radius-xs` `4px`) with a `12px` monochrome globe/settings glyph or deterministic 1-character uppercase domain initial in `--fg-secondary`. Never render broken image icons.
 - **Drag-and-drop reordering:** dragging a tab vertically shows a crisp `2px` horizontal `--accent-primary` insertion line in the `2px` gap between rows; dragging across the Pinned separator pins or unpins the tab.
-- **Last-tab close safeguard:** closing the final remaining session tab (`Ctrl+W` or row close `X`) releases that tab's WebView and opens a fresh `browser://newtab` rather than closing the browser window.
+- **Last-tab close:** closing the final remaining session tab (`Ctrl+W`, `Ctrl+F4`, or row close `X`) exits the browser cleanly.
 
 ---
 
@@ -368,22 +368,18 @@ Settings open as a standard internal tab (`browser://settings`, triggered via `C
 
 ### Layout & surface rules
 
-- **Two-column centered shell on `--bg-window` (`padding: 32px 24px`, `max-width: 840px`, centered):**
-  - **Left category rail (`180px` width, sticky, `2px` row gap):** `32px`-tall category buttons using the same active treatment as tabs (`--bg-surface` + `2px` left `--accent-primary` bar + `500` weight). Ship only categories backed by real settings: `General`, `Appearance`, `Search`, `Privacy & data`, `Shortcuts`.
-  - **Right settings column (`flex: 1`, `max-width: 600px`):** starts with `page-heading` (`18px` `600` weight) + compact filter input (`height: 32px`, `"Filter settings..."`, focused on `Ctrl+F`), followed by flat grouped panels (`--bg-surface`, `1px solid var(--border-subtle)`, `--radius-md` `8px`, `--shadow-none`) separated by `24px` vertical rhythm.
-- **Setting row anatomy (`min-height: 52px`, `padding: 12px 16px`, `1px solid var(--border-subtle)` between sibling rows):**
-  - **Left column:** `13px` `500`-weight setting name (`--fg-primary`) + optional `12px` single-line factual explanation (`--fg-muted`, `max-width: 46ch`).
-  - **Right control slot (aligned middle-right, `16px` gap from text):**
-    - **Segmented control (`28px` height, `--bg-window` track, `2px` inset, `--radius-sm` `6px`):** used for `Theme` (`Dark` | `Light` | `System`) and `Sidebar density` (`Expanded` | `Compact`); active segment gets `--bg-surface`, `1px solid var(--border-control)`, and `500` weight.
-    - **Tactile rectangular toggle (`32px x 18px` track, `--radius-sm` `6px`, `12px x 12px` `--radius-xs` `4px` thumb):** off state uses `--bg-subtle` with `1px solid var(--border-control)`; on state uses `--accent-primary` fill with `--fg-on-accent` thumb (`role="switch"`, `aria-checked`). Avoids generic pill-shaped mobile switches.
-    - **Select control (`height: 28px`, `min-width: 160px`, `--bg-subtle`, `1px solid var(--border-control)`, `--radius-sm` `6px`):** used for Default Search Engine (`Google`, `DuckDuckGo`, `Bing`).
-- **Immediate persistence:** every change applies and persists immediately with zero `Save` / `Cancel` footer ceremony. Destructive operations (`Clear cookies and cache`, `Reset settings`) use a quiet `--bg-subtle` button (`--status-danger` text on confirmation modal only) requiring explicit confirmation.
+- **Two-column centered shell on `--bg-window` (`padding: 28px 24px`, `max-width: 640px` content column):**
+  - **Left category rail (`210px` width, sticky, `2px` row gap):** `34px`-tall category buttons using the same active treatment as tabs (`--bg-surface` + `3px` left `--accent` bar + `600` weight) backed by 6 live categories: `Umum & Startup`, `Tampilan`, `Pencarian`, `Privasi & Iklan`, `Unduhan`, `Pintasan & Tentang`.
+  - **Right settings column (`max-width: 640px`):** starts with `page-heading` + live filter input (`"Cari pengaturan..."`, focused on `Ctrl+F`), followed by flat grouped cards (`--bg-surface`, `1px solid var(--border-subtle)`, `10px` radius) persisting immediately to `%LOCALAPPDATA%\Browser\settings.json`.
+- **Supported controls:** Startup behavior (`Lanjutkan sesi terakhir` default with `%LOCALAPPDATA%\Browser\session.json`, `Buka Tab Baru`, `Buka URL khusus`), Windows HKCU Default Browser & Welcome re-open, 3-theme switcher + WebView2 default Zoom (`80%..150%`) + New Tab clock/shortcuts toggles, Default Search Engine + Google Suggest toggle + history clear, Global Adblock toggle + filter refresh + domain Whitelist + WebView2 `ClearBrowsingData` (with 2-step confirmation), Windows Downloads folder picker + Explorer opener, Keyboard Shortcuts table, WebView2 Runtime version info, and 2-step Settings Reset.
 
 ---
 
 ## 13. Empty States, Loading States, and Error Views
 
-### New Tab (`browser://newtab`) & Ruthenium Notes (`browser://blog`)
+### New Tab (`browser://newtab`), Welcome (`browser://welcome`), & Ruthenium Notes (`browser://blog`)
+
+- **First-Run Onboarding (`browser://welcome`):** Shown once in the first tab until completed or skipped (persisted in `%LOCALAPPDATA%\Browser\first-run.json`, skippable at any time, and re-openable via `browser://welcome` or the Settings `Buka panduan awal` trigger). Provides a 2-step flow covering (1) welcome hero + Windows HKCU default-browser registration/status & `Default Apps` trigger, and (2) live 3-theme preview cards (`Arctic`, `Midnight`, `Aurora`) + default search engine selector (`Google`, `DuckDuckGo`, `Bing`). External `http`/`https`/`.html` CLI links bypass onboarding and open directly in a new Ruthenium window.
 
 - **Canvas & Themes:** Three glassmorphic ambient themes (`Arctic Minimal` light default `#edf3fa`, `Midnight Ruthenium` `#080d1a`, and `Nebula Aurora` `#070913`) persisted in `localStorage` (`ruthenium_ntp_theme_v2` / `ruthenium_ntp_dark_preset_v1`) and synchronized bi-directionally with browser chrome settings via `window.__syncTheme`. WebView2 initializes dark viewport backgrounds to `(8, 13, 26, 255)` and light viewport backgrounds to `(248, 250, 252, 255)`.
 - **Composition (`max-width: 672px` centered inside viewport):**

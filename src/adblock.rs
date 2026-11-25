@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -176,6 +177,7 @@ struct AdblockInner {
     total_blocked: AtomicU64,
     refresh_in_flight: AtomicBool,
     engine: RwLock<Arc<Engine>>,
+    whitelist: RwLock<HashSet<String>>,
     status: RwLock<AdblockStatus>,
 }
 
@@ -206,6 +208,7 @@ impl AdblockService {
                 total_blocked: AtomicU64::new(0),
                 refresh_in_flight: AtomicBool::new(false),
                 engine: RwLock::new(Arc::new(engine)),
+                whitelist: RwLock::new(HashSet::new()),
                 status: RwLock::new(AdblockStatus {
                     loading: false,
                     summary: summary.to_string(),
@@ -225,6 +228,88 @@ impl AdblockService {
 
     pub fn set_enabled(&self, enabled: bool) {
         self.inner.enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn set_whitelist(&self, domains: &[String]) {
+        if let Ok(mut guard) = self.inner.whitelist.write() {
+            guard.clear();
+            for raw in domains {
+                if let Some(norm) = normalize_whitelist_domain(raw) {
+                    guard.insert(norm);
+                }
+            }
+        }
+    }
+
+    pub fn whitelist(&self) -> Vec<String> {
+        let mut items: Vec<String> = self
+            .inner
+            .whitelist
+            .read()
+            .map(|g| g.iter().cloned().collect())
+            .unwrap_or_default();
+        items.sort();
+        items
+    }
+
+    pub fn is_host_whitelisted(&self, url_or_host: &str) -> bool {
+        let Some(host) = normalize_whitelist_domain(url_or_host) else {
+            return false;
+        };
+        let Ok(guard) = self.inner.whitelist.read() else {
+            return false;
+        };
+        if guard.contains(&host) {
+            return true;
+        }
+        let mut slice = host.as_str();
+        while let Some((_, rest)) = slice.split_once('.') {
+            if guard.contains(rest) {
+                return true;
+            }
+            slice = rest;
+        }
+        false
+    }
+
+    pub fn toggle_site_whitelist(&self, url_or_host: &str) -> Option<(String, bool)> {
+        let host = normalize_whitelist_domain(url_or_host)?;
+        let Ok(mut guard) = self.inner.whitelist.write() else {
+            return None;
+        };
+        if guard.remove(&host) {
+            return Some((host, false));
+        }
+        let mut slice = host.as_str();
+        while let Some((_, rest)) = slice.split_once('.') {
+            if guard.contains(rest) {
+                let parent = rest.to_string();
+                guard.remove(&parent);
+                return Some((parent, false));
+            }
+            slice = rest;
+        }
+        guard.insert(host.clone());
+        Some((host, true))
+    }
+
+    pub fn add_whitelist_domain(&self, raw: &str) -> Option<String> {
+        let host = normalize_whitelist_domain(raw)?;
+        let Ok(mut guard) = self.inner.whitelist.write() else {
+            return None;
+        };
+        guard.insert(host.clone());
+        Some(host)
+    }
+
+    pub fn remove_whitelist_domain(&self, raw: &str) -> bool {
+        let Some(host) = normalize_whitelist_domain(raw) else {
+            return false;
+        };
+        let Ok(mut guard) = self.inner.whitelist.write() else {
+            return false;
+        };
+        guard.remove(&host)
     }
 
     pub fn total_blocked(&self) -> u64 {
@@ -350,7 +435,11 @@ impl AdblockService {
         request_type: &str,
         method: &str,
     ) -> bool {
-        if !self.is_enabled() || is_exempt_url(url) || is_internal_source(source_url) {
+        if !self.is_enabled()
+            || is_exempt_url(url)
+            || is_internal_source(source_url)
+            || self.is_host_whitelisted(source_url)
+        {
             return false;
         }
         let Ok(request) = Request::new(url, source_url, request_type, method) else {
@@ -363,7 +452,11 @@ impl AdblockService {
     }
 
     pub fn should_block_popup(&self, url: &str, source_url: &str) -> bool {
-        if !self.is_enabled() || is_exempt_url(url) || is_internal_source(source_url) {
+        if !self.is_enabled()
+            || is_exempt_url(url)
+            || is_internal_source(source_url)
+            || self.is_host_whitelisted(source_url)
+        {
             return false;
         }
         let Ok(guard) = self.inner.engine.read() else {
@@ -377,7 +470,7 @@ impl AdblockService {
     }
 
     pub fn cosmetic_css_for_url(&self, url: &str) -> Option<String> {
-        if !self.is_enabled() || is_exempt_url(url) {
+        if !self.is_enabled() || is_exempt_url(url) || self.is_host_whitelisted(url) {
             return None;
         }
         let engine = self.inner.engine.read().ok().map(|g| Arc::clone(&g))?;
@@ -391,7 +484,11 @@ impl AdblockService {
         classes: &[String],
         ids: &[String],
     ) -> Option<String> {
-        if !self.is_enabled() || is_exempt_url(url) || (classes.is_empty() && ids.is_empty()) {
+        if !self.is_enabled()
+            || is_exempt_url(url)
+            || self.is_host_whitelisted(url)
+            || (classes.is_empty() && ids.is_empty())
+        {
             return None;
         }
         let engine = self.inner.engine.read().ok().map(|g| Arc::clone(&g))?;
@@ -402,6 +499,41 @@ impl AdblockService {
         let hidden = engine.hidden_class_id_selectors(classes, ids, &resources.exceptions);
         format_hide_selectors_css(hidden.iter().map(String::as_str), 1200)
     }
+}
+
+pub fn normalize_whitelist_domain(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let host_part = if let Some((_, rest)) = trimmed.split_once("://") {
+        rest.split(['/', '?', '#']).next().unwrap_or("")
+    } else {
+        trimmed.split(['/', '?', '#']).next().unwrap_or("")
+    };
+    let no_userinfo = host_part.rsplit('@').next().unwrap_or(host_part);
+    let host_only = no_userinfo.split(':').next().unwrap_or("");
+    let lower = host_only
+        .trim()
+        .trim_start_matches("www.")
+        .to_ascii_lowercase();
+    if lower.is_empty()
+        || lower.len() > 253
+        || !lower.contains('.')
+        || lower.starts_with('.')
+        || lower.ends_with('.')
+        || lower.contains("..")
+        || is_local_or_internal_host(&lower)
+    {
+        return None;
+    }
+    if !lower
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
+    {
+        return None;
+    }
+    Some(lower)
 }
 
 fn format_hide_selectors_css<'a>(
@@ -876,5 +1008,39 @@ mod tests {
                 .is_none(),
             "generichide exception must suppress generic cosmetic selectors"
         );
+    }
+
+    #[test]
+    fn respects_per_site_whitelist_including_subdomains() {
+        let blocker = AdblockService::with_rules("||doubleclick.net^\nkompas.com##.ad-slot\n");
+        assert!(blocker.should_block_request(
+            "https://doubleclick.net/ad.js",
+            "https://nasional.kompas.com/read/123",
+            "script",
+            "GET"
+        ));
+        assert!(blocker.cosmetic_css_for_url("https://nasional.kompas.com/read/123").is_some());
+
+        let added = blocker.add_whitelist_domain("https://www.Kompas.com/news");
+        assert_eq!(added.as_deref(), Some("kompas.com"));
+        assert!(blocker.is_host_whitelisted("https://nasional.kompas.com/read/123"));
+        assert!(!blocker.should_block_request(
+            "https://doubleclick.net/ad.js",
+            "https://nasional.kompas.com/read/123",
+            "script",
+            "GET"
+        ));
+        assert!(blocker.cosmetic_css_for_url("https://nasional.kompas.com/read/123").is_none());
+
+        assert_eq!(
+            blocker.toggle_site_whitelist("https://nasional.kompas.com/read/123"),
+            Some(("kompas.com".to_string(), false))
+        );
+        assert!(blocker.should_block_request(
+            "https://doubleclick.net/ad.js",
+            "https://nasional.kompas.com/read/123",
+            "script",
+            "GET"
+        ));
     }
 }

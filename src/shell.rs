@@ -53,6 +53,9 @@ pub struct ShellSyncPayload<'a> {
     pub adblock_blocked_total: u64,
     pub adblock_status: &'a str,
     pub adblock_refreshing: bool,
+    pub adblock_site_whitelisted: bool,
+    pub suggest_enabled: bool,
+    pub is_default_browser: bool,
 }
 
 pub struct ShellView {
@@ -231,7 +234,7 @@ impl ShellView {
         tabs_json.push(']');
 
         let script = format!(
-            "if (window.__shellSync) window.__shellSync({{tabs:{},rawUrl:{},origin:{},path:{},title:{},security:{},canGoBack:{},canGoForward:{},isLoading:{},sidebarWidth:{:.1},isCompact:{},isMaximized:{},windowFocused:{},theme:{},profileName:{},searchEngine:{},adblockEnabled:{},adblockBlockedTab:{},adblockBlockedTotal:{},adblockStatus:{},adblockRefreshing:{}}});",
+            "if (window.__shellSync) window.__shellSync({{tabs:{},rawUrl:{},origin:{},path:{},title:{},security:{},canGoBack:{},canGoForward:{},isLoading:{},sidebarWidth:{:.1},isCompact:{},isMaximized:{},windowFocused:{},theme:{},profileName:{},searchEngine:{},adblockEnabled:{},adblockBlockedTab:{},adblockBlockedTotal:{},adblockStatus:{},adblockRefreshing:{},adblockSiteWhitelisted:{},suggestEnabled:{},isDefaultBrowser:{}}});",
             tabs_json,
             escape_js_string(&state.origin_display.raw_url),
             escape_js_string(&state.origin_display.origin),
@@ -253,6 +256,9 @@ impl ShellView {
             state.adblock_blocked_total,
             escape_js_string(state.adblock_status),
             state.adblock_refreshing,
+            state.adblock_site_whitelisted,
+            state.suggest_enabled,
+            state.is_default_browser,
         );
         let _ = self.webview.evaluate_script(&script);
     }

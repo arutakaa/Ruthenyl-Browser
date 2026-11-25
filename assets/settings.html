@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="id" data-theme="arctic">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pengaturan - Ruthenium</title>
+  <link rel="icon" type="image/svg+xml" href="/ruthenium-logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <script>
+    (() => {
+      try {
+        const saved = localStorage.getItem("ruthenium_ntp_theme_v2");
+        if (saved === "arctic" || saved === "midnight" || saved === "aurora") {
+          document.documentElement.dataset.theme = saved;
+        }
+      } catch (_) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="/settings.css?v=1">
+  <script defer src="/settings.js?v=1"></script>
+</head>
+<body>
+  <div class="settings-shell">
+    <aside class="settings-rail" aria-label="Kategori pengaturan">
+      <div class="rail-brand">
+        <img src="/ruthenium-logo.svg" width="24" height="24" alt="">
+        <span>Pengaturan</span>
+      </div>
+
+      <nav class="rail-nav" id="settings-rail-nav">
+        <button type="button" class="rail-btn is-active" data-nav-section="general" aria-current="page">Umum &amp; Startup</button>
+        <button type="button" class="rail-btn" data-nav-section="appearance">Tampilan</button>
+        <button type="button" class="rail-btn" data-nav-section="search">Pencarian</button>
+        <button type="button" class="rail-btn" data-nav-section="privacy">Privasi &amp; Iklan</button>
+        <button type="button" class="rail-btn" data-nav-section="downloads">Unduhan</button>
+        <button type="button" class="rail-btn" data-nav-section="about">Pintasan &amp; Tentang</button>
+      </nav>
+
+      <div class="rail-footer">Ruthenium Browser</div>
+    </aside>
+
+    <main class="settings-main">
+      <div class="settings-container">
+        <header class="settings-header">
+          <div>
+            <h1 class="page-heading">Pengaturan</h1>
+            <p class="page-subheading">Semua perubahan disimpan otomatis ke profil lokal Ruthenium.</p>
+          </div>
+
+          <div class="filter-box">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"></circle>
+              <path d="m21 21-4.3-4.3"></path>
+            </svg>
+            <label class="sr-only" for="settings-filter-input">Cari pengaturan</label>
+            <input type="search" id="settings-filter-input" placeholder="Cari pengaturan..." autocomplete="off" spellcheck="false">
+          </div>
+        </header>
+
+        <div class="settings-toast" id="settings-toast" role="status" aria-live="polite" hidden></div>
+        <div class="search-empty" id="settings-search-empty" hidden>
+          <strong>Tidak ada pengaturan yang cocok</strong>
+          <span>Coba kata kunci lain seperti tema, zoom, iklan, cookie, atau unduhan.</span>
+        </div>
+
+        <!-- 1. Umum & Startup -->
+        <section class="settings-section" id="sec-general" data-section="general" aria-labelledby="heading-general">
+          <h2 class="section-title" id="heading-general">Umum &amp; Startup</h2>
+          <div class="settings-card">
+            <div class="setting-row setting-row--stack" data-keywords="startup buka awal sesi restore tab baru url">
+              <div class="setting-copy">
+                <div class="setting-name">Saat Ruthenium dibuka</div>
+                <div class="setting-desc">Tentukan halaman atau sesi yang dimuat otomatis saat aplikasi dibuka.</div>
+              </div>
+              <div class="choice-pills" role="group" aria-label="Saat Ruthenium dibuka">
+                <button type="button" class="choice-pill is-selected" data-startup="restore" aria-pressed="true">Lanjutkan sesi terakhir</button>
+                <button type="button" class="choice-pill" data-startup="newtab" aria-pressed="false">Buka Tab Baru</button>
+                <button type="button" class="choice-pill" data-startup="custom" aria-pressed="false">Buka URL khusus</button>
+              </div>
+              <form class="inline-form" id="startup-url-form" hidden>
+                <label class="sr-only" for="startup-url-input">URL halaman awal khusus</label>
+                <input type="text" class="text-input" id="startup-url-input" placeholder="https://example.com" spellcheck="false" autocomplete="off">
+                <button type="submit" class="btn-secondary">Simpan URL</button>
+              </form>
+            </div>
+
+            <div class="setting-row" data-keywords="default browser windows tautan aplikasi lain">
+              <div class="setting-copy">
+                <div class="setting-name">Browser Default Windows</div>
+                <div class="setting-desc" id="default-browser-hint">Belum menjadi browser default</div>
+              </div>
+              <button type="button" class="btn-secondary" id="btn-default-browser">Jadikan browser default</button>
+            </div>
+
+            <div class="setting-row" data-keywords="panduan awal onboarding welcome selamat datang">
+              <div class="setting-copy">
+                <div class="setting-name">Panduan awal</div>
+                <div class="setting-desc">Buka kembali layar selamat datang 2 langkah untuk mengatur browser.</div>
+              </div>
+              <button type="button" class="btn-secondary" id="btn-open-welcome">Buka panduan awal</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- 2. Tampilan -->
+        <section class="settings-section" id="sec-appearance" data-section="appearance" aria-labelledby="heading-appearance">
+          <h2 class="section-title" id="heading-appearance">Tampilan</h2>
+          <div class="settings-card">
+            <div class="setting-row setting-row--stack" data-keywords="tema tampilan warna arctic midnight aurora gelap terang">
+              <div class="setting-copy">
+                <div class="setting-name">Tema tampilan</div>
+                <div class="setting-desc">Diterapkan langsung ke seluruh bilah tab, toolbar, dan halaman internal.</div>
+              </div>
+              <div class="theme-grid" role="group" aria-label="Pilih tema tampilan">
+                <button type="button" class="theme-card is-selected" data-theme-choice="arctic" aria-pressed="true">
+                  <span class="theme-swatch theme-swatch--arctic" aria-hidden="true"></span>
+                  <span>Arctic</span>
+                </button>
+                <button type="button" class="theme-card" data-theme-choice="midnight" aria-pressed="false">
+                  <span class="theme-swatch theme-swatch--midnight" aria-hidden="true"></span>
+                  <span>Midnight</span>
+                </button>
+                <button type="button" class="theme-card" data-theme-choice="aurora" aria-pressed="false">
+                  <span class="theme-swatch theme-swatch--aurora" aria-hidden="true"></span>
+                  <span>Aurora</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="setting-row setting-row--stack" data-keywords="zoom perbesaran halaman font skala">
+              <div class="setting-copy">
+                <div class="setting-name">Zoom halaman default</div>
+                <div class="setting-desc">Atur skala tampilan bawaan untuk semua situs web yang dibuka.</div>
+              </div>
+              <div class="choice-pills" role="group" aria-label="Zoom halaman default">
+                <button type="button" class="choice-pill" data-zoom="80">80%</button>
+                <button type="button" class="choice-pill" data-zoom="90">90%</button>
+                <button type="button" class="choice-pill is-selected" data-zoom="100">100%</button>
+                <button type="button" class="choice-pill" data-zoom="110">110%</button>
+                <button type="button" class="choice-pill" data-zoom="125">125%</button>
+                <button type="button" class="choice-pill" data-zoom="150">150%</button>
+              </div>
+            </div>
+
+            <div class="setting-row" data-keywords="beranda newtab jam tanggal waktu">
+              <div class="setting-copy">
+                <div class="setting-name" id="label-home-clock">Tampilkan jam &amp; tanggal di Beranda</div>
+                <div class="setting-desc">Menampilkan widget waktu lokal di sudut kanan atas Tab Baru.</div>
+              </div>
+              <button type="button" class="switch-btn" id="switch-home-clock" role="switch" aria-checked="true" aria-labelledby="label-home-clock">
+                <span class="switch-thumb" aria-hidden="true"></span>
+              </button>
+            </div>
+
+            <div class="setting-row" data-keywords="beranda newtab pintasan shortcut grid">
+              <div class="setting-copy">
+                <div class="setting-name" id="label-home-shortcuts">Tampilkan grid pintasan di Beranda</div>
+                <div class="setting-desc">Tampilkan daftar situs cepat di bawah kolom pencarian Tab Baru.</div>
+              </div>
+              <button type="button" class="switch-btn" id="switch-home-shortcuts" role="switch" aria-checked="true" aria-labelledby="label-home-shortcuts">
+                <span class="switch-thumb" aria-hidden="true"></span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. Pencarian -->
+        <section class="settings-section" id="sec-search" data-section="search" aria-labelledby="heading-search">
+          <h2 class="section-title" id="heading-search">Pencarian</h2>
+          <div class="settings-card">
+            <div class="setting-row setting-row--stack" data-keywords="mesin pencari default google duckduckgo bing">
+              <div class="setting-copy">
+                <div class="setting-name">Mesin pencari default</div>
+                <div class="setting-desc">Digunakan di omnibox atas maupun kolom pencarian Tab Baru.</div>
+              </div>
+              <div class="choice-pills" role="group" aria-label="Mesin pencari default">
+                <button type="button" class="choice-pill is-selected" data-engine="google">Google</button>
+                <button type="button" class="choice-pill" data-engine="duckduckgo">DuckDuckGo</button>
+                <button type="button" class="choice-pill" data-engine="bing">Bing</button>
+              </div>
+            </div>
+
+            <div class="setting-row" data-keywords="saran pencarian suggest otomatis omnibox autocomplete">
+              <div class="setting-copy">
+                <div class="setting-name" id="label-suggest">Saran pencarian otomatis</div>
+                <div class="setting-desc">Tampilkan rekomendasi kata kunci saat mengetik di omnibox dan Beranda.</div>
+              </div>
+              <button type="button" class="switch-btn" id="switch-suggest" role="switch" aria-checked="true" aria-labelledby="label-suggest">
+                <span class="switch-thumb" aria-hidden="true"></span>
+              </button>
+            </div>
+
+            <div class="setting-row" data-keywords="hapus riwayat pencarian history">
+              <div class="setting-copy">
+                <div class="setting-name">Riwayat pencarian</div>
+                <div class="setting-desc">Hapus semua saran kata kunci yang pernah dicari dari penyimpanan browser.</div>
+              </div>
+              <button type="button" class="btn-secondary" id="btn-clear-search-history">Hapus riwayat</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- 4. Privasi & Iklan -->
+        <section class="settings-section" id="sec-privacy" data-section="privacy" aria-labelledby="heading-privacy">
+          <h2 class="section-title" id="heading-privacy">Privasi &amp; Pemblokir Iklan</h2>
+          <div class="settings-card">
+            <div class="setting-row" data-keywords="adblock iklan pelacak uassets easylist abpindo agresif">
+              <div class="setting-copy">
+                <div class="setting-name" id="label-adblock-global">Pemblokir Iklan &amp; Pelacak Global</div>
+                <div class="setting-desc" id="adblock-status-hint">Aktif (Agresif) · Filter dasar siap</div>
+              </div>
+              <div class="row-actions">
+                <button type="button" class="btn-secondary" id="btn-refresh-filters">Perbarui 10 filter</button>
+                <button type="button" class="switch-btn" id="switch-adblock" role="switch" aria-checked="true" aria-labelledby="label-adblock-global">
+                  <span class="switch-thumb" aria-hidden="true"></span>
+                </button>
+              </div>
+            </div>
+
+            <div class="setting-row setting-row--stack" data-keywords="whitelist pengecualian situs adblock domain">
+              <div class="setting-copy">
+                <div class="setting-name">Pengecualian situs (Whitelist)</div>
+                <div class="setting-desc">Iklan tetap diizinkan pada domain berikut. Anda juga bisa klik ikon perisai di toolbar saat membuka situs.</div>
+              </div>
+              <form class="inline-form" id="whitelist-form">
+                <label class="sr-only" for="whitelist-input">Domain pengecualian</label>
+                <input type="text" class="text-input" id="whitelist-input" placeholder="contoh: kompas.com" spellcheck="false" autocomplete="off">
+                <button type="submit" class="btn-secondary">Tambah</button>
+              </form>
+              <div class="whitelist-box" id="whitelist-list"></div>
+              <p class="setting-muted-empty" id="whitelist-empty">Belum ada situs yang dikecualikan.</p>
+            </div>
+
+            <div class="setting-row setting-row--stack" data-keywords="hapus data penjelajahan cache cookies sesi login">
+              <div class="setting-copy">
+                <div class="setting-name">Hapus data penjelajahan</div>
+                <div class="setting-desc">Pintasan Beranda dan Catatan Cepat Anda tetap aman dan tidak ikut terhapus.</div>
+              </div>
+              <div class="checkbox-list">
+                <label class="checkbox-row">
+                  <input type="checkbox" id="chk-clear-cache" checked>
+                  <span>Cache gambar &amp; berkas sementara</span>
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="chk-clear-cookies">
+                  <span>Cookies &amp; sesi login situs</span>
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="chk-clear-history" checked>
+                  <span>Riwayat pencarian lokal</span>
+                </label>
+              </div>
+              <div class="confirm-bar">
+                <button type="button" class="btn-danger-outline" id="btn-clear-browsing-data">Hapus data terpilih</button>
+                <button type="button" class="btn-ghost" id="btn-cancel-clear-data" hidden>Batal</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 5. Unduhan -->
+        <section class="settings-section" id="sec-downloads" data-section="downloads" aria-labelledby="heading-downloads">
+          <h2 class="section-title" id="heading-downloads">Unduhan</h2>
+          <div class="settings-card">
+            <div class="setting-row setting-row--stack" data-keywords="unduhan download folder lokasi simpan explorer">
+              <div class="setting-copy">
+                <div class="setting-name">Lokasi unduhan default</div>
+                <div class="setting-desc">Folder tujuan untuk berkas yang diunduh dari situs web.</div>
+              </div>
+              <div class="path-readout" id="download-folder-path">Memuat...</div>
+              <div class="row-actions">
+                <button type="button" class="btn-secondary" id="btn-pick-downloads">Ubah folder...</button>
+                <button type="button" class="btn-secondary" id="btn-open-downloads">Buka folder</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 6. Pintasan & Tentang -->
+        <section class="settings-section" id="sec-about" data-section="about" aria-labelledby="heading-about">
+          <h2 class="section-title" id="heading-about">Pintasan Keyboard &amp; Tentang</h2>
+          <div class="settings-card">
+            <div class="setting-row setting-row--stack" data-keywords="shortcut pintasan keyboard tombol ctrl alt">
+              <div class="setting-copy">
+                <div class="setting-name">Pintasan keyboard aktif</div>
+                <div class="setting-desc">Navigasi cepat seluruh browser tanpa perlu mengangkat tangan dari keyboard.</div>
+              </div>
+              <div class="shortcut-grid">
+                <div class="shortcut-row"><span>Buka tab baru</span><kbd>Ctrl+T</kbd></div>
+                <div class="shortcut-row"><span>Tutup tab aktif</span><kbd>Ctrl+W</kbd></div>
+                <div class="shortcut-row"><span>Fokus ke bilah alamat</span><kbd>Ctrl+L</kbd></div>
+                <div class="shortcut-row"><span>Tampilkan/sembunyikan sidebar</span><kbd>Ctrl+B</kbd></div>
+                <div class="shortcut-row"><span>Muat ulang halaman</span><kbd>Ctrl+R</kbd></div>
+                <div class="shortcut-row"><span>Pindah tab berikutnya</span><kbd>Ctrl+Tab</kbd></div>
+                <div class="shortcut-row"><span>Pindah tab 1 sampai 9</span><kbd>Ctrl+1..9</kbd></div>
+                <div class="shortcut-row"><span>Kembali / Maju</span><kbd>Alt+Left / Right</kbd></div>
+                <div class="shortcut-row"><span>Buka Pengaturan</span><kbd>Ctrl+,</kbd></div>
+              </div>
+            </div>
+
+            <div class="setting-row" data-keywords="tentang versi webview2 adblock tentang browser">
+              <div class="setting-copy">
+                <div class="setting-name">Versi Ruthenium Browser</div>
+                <div class="setting-desc" id="about-version-desc">Ruthenium 0.1.0 · WebView2 Runtime · adblock-rust</div>
+              </div>
+              <span class="version-badge" id="about-webview2-badge">0.1.0</span>
+            </div>
+
+            <div class="setting-row" data-keywords="reset pengaturan bawaan awal ulang">
+              <div class="setting-copy">
+                <div class="setting-name">Reset semua pengaturan</div>
+                <div class="setting-desc">Kembalikan tema, mesin pencari, zoom, startup, dan whitelist ke setelan bawaan.</div>
+              </div>
+              <div class="row-actions">
+                <button type="button" class="btn-danger-outline" id="btn-reset-settings">Reset ke bawaan</button>
+                <button type="button" class="btn-ghost" id="btn-cancel-reset" hidden>Batal</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

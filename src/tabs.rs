@@ -15,9 +15,11 @@ use crate::engine::content_data_dir;
 use crate::engine::{ContentAttachOptions, ContentEngine};
 use crate::error::BrowserError;
 use crate::ipc::{
-    AppEvent, BrowserTheme, INTERNAL_NEWTAB_URL, TabId, format_origin_display, is_internal_blog,
-    is_internal_newtab,
+    AppEvent, BrowserTheme, INTERNAL_BLOG_URL, INTERNAL_NEWTAB_URL, INTERNAL_SETTINGS_URL,
+    INTERNAL_WELCOME_URL, TabId, format_origin_display, is_internal_blog, is_internal_newtab,
+    is_internal_settings, is_internal_welcome,
 };
+use crate::settings::SessionState;
 use crate::shell::ShellTabSummary;
 
 pub trait TabRuntimeOps {
@@ -200,6 +202,7 @@ impl<E: TabRuntimeOps> TabCollection<E> {
         Some(removed)
     }
 
+    #[cfg(test)]
     pub fn replace_last_tab(
         &mut self,
         replacement_id: TabId,
@@ -242,6 +245,7 @@ impl TabManager {
     pub fn new(
         window: &Window,
         initial_bounds: Rect,
+        initial_url: &str,
         #[cfg(target_os = "windows")] shared_env: ICoreWebView2Environment,
         adblock: AdblockService,
         proxy: EventLoopProxy<AppEvent>,
@@ -255,6 +259,7 @@ impl TabManager {
             window,
             ContentAttachOptions {
                 tab_id: first_id,
+                initial_url,
                 #[cfg(target_os = "windows")]
                 shared_env: &shared_env,
                 #[cfg(not(target_os = "windows"))]
@@ -271,6 +276,8 @@ impl TabManager {
         let mut collection = TabCollection::new(first_id, first_engine, initial_bounds);
         if let Some(tab) = collection.tab_mut(first_id) {
             tab.blocked_counter = first_counter;
+            tab.url = canonical_url_for_state(initial_url);
+            tab.title = initial_title_for_url(&tab.url);
         }
 
         Ok(Self {
@@ -290,7 +297,7 @@ impl TabManager {
         self.theme = theme;
         let wire = theme.as_wire();
         for tab in self.collection.tabs() {
-            if is_internal_newtab(&tab.url) || is_internal_blog(&tab.url) {
+            if is_internal_page(&tab.url) {
                 tab.engine.sync_theme(wire);
             }
         }
@@ -299,7 +306,7 @@ impl TabManager {
     pub fn sync_internal_prefs_all(&self, engine: &str, theme: BrowserTheme) {
         let wire = theme.as_wire();
         for tab in self.collection.tabs() {
-            if is_internal_newtab(&tab.url) || is_internal_blog(&tab.url) {
+            if is_internal_page(&tab.url) {
                 tab.engine.sync_internal_prefs(engine, wire);
             }
         }
@@ -308,10 +315,107 @@ impl TabManager {
     pub fn sync_internal_prefs_tab(&self, tab_id: TabId, engine: &str, theme: BrowserTheme) {
         let wire = theme.as_wire();
         if let Some(tab) = self.collection.tabs().iter().find(|t| t.id == tab_id)
-            && (is_internal_newtab(&tab.url) || is_internal_blog(&tab.url))
+            && is_internal_page(&tab.url)
         {
             tab.engine.sync_internal_prefs(engine, wire);
         }
+    }
+
+    pub fn sync_default_browser_all(&self, is_default: bool) {
+        for tab in self.collection.tabs() {
+            if is_internal_welcome(&tab.url) {
+                tab.engine.sync_default_browser(is_default);
+            }
+        }
+    }
+
+    pub fn sync_default_browser_tab(&self, tab_id: TabId, is_default: bool) {
+        if let Some(tab) = self.collection.tabs().iter().find(|t| t.id == tab_id)
+            && is_internal_welcome(&tab.url)
+        {
+            tab.engine.sync_default_browser(is_default);
+        }
+    }
+
+    pub fn sync_home_prefs_all(&self, show_clock: bool, show_shortcuts: bool, suggest_enabled: bool) {
+        for tab in self.collection.tabs() {
+            if is_internal_newtab(&tab.url) {
+                tab.engine
+                    .sync_home_prefs(show_clock, show_shortcuts, suggest_enabled);
+            }
+        }
+    }
+
+    pub fn sync_home_prefs_tab(
+        &self,
+        tab_id: TabId,
+        show_clock: bool,
+        show_shortcuts: bool,
+        suggest_enabled: bool,
+    ) {
+        if let Some(tab) = self.collection.tabs().iter().find(|t| t.id == tab_id)
+            && is_internal_newtab(&tab.url)
+        {
+            tab.engine
+                .sync_home_prefs(show_clock, show_shortcuts, suggest_enabled);
+        }
+    }
+
+    pub fn sync_settings_all(&self, json: &str) {
+        for tab in self.collection.tabs() {
+            if is_internal_settings(&tab.url) {
+                tab.engine.sync_settings_json(json);
+            }
+        }
+    }
+
+    pub fn sync_settings_tab(&self, tab_id: TabId, json: &str) {
+        if let Some(tab) = self.collection.tabs().iter().find(|t| t.id == tab_id)
+            && is_internal_settings(&tab.url)
+        {
+            tab.engine.sync_settings_json(json);
+        }
+    }
+
+    pub fn sync_settings_feedback_all(&self, msg: &str) {
+        for tab in self.collection.tabs() {
+            if is_internal_settings(&tab.url) {
+                tab.engine.sync_settings_feedback(msg);
+            }
+        }
+    }
+
+    pub fn set_zoom_all(&self, zoom_percent: u16) {
+        for tab in self.collection.tabs() {
+            let zoom = if is_internal_page(&tab.url) {
+                100
+            } else {
+                zoom_percent
+            };
+            tab.engine.set_zoom(zoom);
+        }
+    }
+
+    pub fn apply_zoom_for_tab(&self, tab_id: TabId, zoom_percent: u16) {
+        if let Some(tab) = self.collection.tabs().iter().find(|t| t.id == tab_id) {
+            let zoom = if is_internal_page(&tab.url) {
+                100
+            } else {
+                zoom_percent
+            };
+            tab.engine.set_zoom(zoom);
+        }
+    }
+
+    pub fn apply_download_folder(&self, path: &str) {
+        self.collection.active_tab().engine.set_download_folder(path);
+    }
+
+    pub fn clear_browsing_data(&self, cache: bool, cookies: bool) {
+        self.collection
+            .active_tab()
+            .engine
+            .clear_browsing_data(cache, cookies, self.proxy.clone());
     }
 
     pub fn sync_history_add_all(&self, query: &str) {
@@ -347,12 +451,23 @@ impl TabManager {
     }
 
     pub fn create_tab(&mut self, window: &Window, activate: bool) -> Result<TabId, BrowserError> {
+        self.create_tab_with_url(window, "browser://localhost/newtab", activate)
+    }
+
+    pub fn create_tab_with_url(
+        &mut self,
+        window: &Window,
+        url: &str,
+        activate: bool,
+    ) -> Result<TabId, BrowserError> {
         let id = self.alloc_id();
         let counter = Arc::new(AtomicU64::new(0));
-        let engine = self.attach_tab_engine(window, id, activate, Arc::clone(&counter))?;
+        let engine = self.attach_tab_engine(window, id, url, activate, Arc::clone(&counter))?;
         self.collection.insert_tab(id, engine, activate);
         if let Some(tab) = self.collection.tab_mut(id) {
             tab.blocked_counter = counter;
+            tab.url = canonical_url_for_state(url);
+            tab.title = initial_title_for_url(&tab.url);
         }
         Ok(id)
     }
@@ -362,33 +477,80 @@ impl TabManager {
         window: &Window,
         url: &str,
     ) -> Result<TabId, BrowserError> {
-        let id = self.create_tab(window, true)?;
-        self.navigate_active(url);
-        Ok(id)
+        self.create_tab_with_url(window, url, true)
     }
 
-    pub fn close_tab(&mut self, window: &Window, id: TabId) -> Result<bool, BrowserError> {
+    pub fn open_or_select_settings(
+        &mut self,
+        window: &Window,
+        section: Option<&str>,
+    ) -> Result<TabId, BrowserError> {
+        if let Some(existing) = self
+            .collection
+            .tabs()
+            .iter()
+            .find(|t| is_internal_settings(&t.url))
+        {
+            let id = existing.id;
+            let _ = self.collection.select_tab(id);
+            if let Some(sec) = section
+                && let Some(tab) = self.collection.tabs().iter().find(|t| t.id == id)
+            {
+                tab.engine.select_settings_section(sec);
+            }
+            return Ok(id);
+        }
+        let target = match section {
+            Some(sec) => format!("{INTERNAL_SETTINGS_URL}#{sec}"),
+            None => INTERNAL_SETTINGS_URL.to_string(),
+        };
+        self.create_tab_with_url(window, &target, true)
+    }
+
+    pub fn restore_session_tabs(
+        &mut self,
+        window: &Window,
+        urls: &[String],
+        active_index: usize,
+    ) -> Result<(), BrowserError> {
+        for url in urls.iter().skip(1) {
+            self.create_tab_with_url(window, url, false)?;
+        }
+        if let Some(target_id) = self.collection.tabs().get(active_index).map(|t| t.id) {
+            let _ = self.collection.select_tab(target_id);
+        }
+        Ok(())
+    }
+
+    pub fn snapshot_session(&self) -> SessionState {
+        let active_id = self.collection.active_id();
+        let mut urls = Vec::new();
+        let mut active_index = 0usize;
+        for tab in self.collection.tabs() {
+            if !is_internal_page(&tab.url) {
+                let lower = tab.url.to_ascii_lowercase();
+                if lower.starts_with("https://") || lower.starts_with("http://") {
+                    if tab.id == active_id {
+                        active_index = urls.len();
+                    }
+                    urls.push(tab.url.clone());
+                }
+            }
+        }
+        SessionState { urls, active_index }
+    }
+
+    pub fn close_tab(&mut self, id: TabId) -> bool {
         if !self.collection.tabs().iter().any(|t| t.id == id) {
-            return Ok(false);
+            return false;
         }
 
         if self.collection.tabs().len() > 1 {
             let removed = self.collection.remove_non_last_tab(id);
             drop(removed);
-            Ok(false)
+            false
         } else {
-            let replacement_id = self.alloc_id();
-            let counter = Arc::new(AtomicU64::new(0));
-            let replacement =
-                self.attach_tab_engine(window, replacement_id, true, Arc::clone(&counter))?;
-            let old = self
-                .collection
-                .replace_last_tab(replacement_id, replacement);
-            if let Some(tab) = self.collection.tab_mut(replacement_id) {
-                tab.blocked_counter = counter;
-            }
-            drop(old);
-            Ok(true)
+            true
         }
     }
 
@@ -396,6 +558,7 @@ impl TabManager {
         &mut self,
         window: &Window,
         tab_id: TabId,
+        initial_url: &str,
         visible: bool,
         blocked_counter: Arc<AtomicU64>,
     ) -> Result<ContentEngine, BrowserError> {
@@ -404,6 +567,7 @@ impl TabManager {
             window,
             ContentAttachOptions {
                 tab_id,
+                initial_url,
                 #[cfg(target_os = "windows")]
                 shared_env: &self.shared_env,
                 #[cfg(not(target_os = "windows"))]
@@ -418,9 +582,9 @@ impl TabManager {
         )
     }
 
-    pub fn close_active_tab(&mut self, window: &Window) -> Result<bool, BrowserError> {
+    pub fn close_active_tab(&mut self) -> bool {
         let id = self.collection.active_id();
-        self.close_tab(window, id)
+        self.close_tab(id)
     }
 
     pub fn select_tab(&mut self, id: TabId) -> bool {
@@ -508,6 +672,10 @@ impl TabManager {
             tab.favicon_url = None;
             tab.blocked_counter.store(0, Ordering::Relaxed);
             tab.blocked_count = 0;
+        } else if is_internal_welcome(&tab.url) || is_internal_settings(&tab.url) {
+            tab.favicon_url = None;
+            tab.blocked_counter.store(0, Ordering::Relaxed);
+            tab.blocked_count = 0;
         }
         true
     }
@@ -528,8 +696,7 @@ impl TabManager {
 
     pub fn apply_cosmetic_for_tab(&self, tab_id: TabId) {
         if let Some(tab) = self.collection.tabs().iter().find(|t| t.id == tab_id)
-            && !is_internal_newtab(&tab.url)
-            && !is_internal_blog(&tab.url)
+            && !is_internal_page(&tab.url)
         {
             let css = self.adblock.cosmetic_css_for_url(&tab.url);
             tab.engine.apply_cosmetic_css(css.as_deref());
@@ -543,8 +710,7 @@ impl TabManager {
         ids: &[String],
     ) {
         if let Some(tab) = self.collection.tabs().iter().find(|t| t.id == tab_id)
-            && !is_internal_newtab(&tab.url)
-            && !is_internal_blog(&tab.url)
+            && !is_internal_page(&tab.url)
             && let Some(css) = self
                 .adblock
                 .generic_cosmetic_css_for_elements(&tab.url, classes, ids)
@@ -553,16 +719,34 @@ impl TabManager {
         }
     }
 
-    pub fn set_adblock_enabled_all(&self, enabled: bool) {
+    pub fn sync_adblock_state_all(&self) {
+        let global_enabled = self.adblock.is_enabled();
         for tab in self.collection.tabs() {
-            if !is_internal_newtab(&tab.url) && !is_internal_blog(&tab.url) {
-                tab.engine.set_adblock_state(enabled);
-                if enabled {
+            if !is_internal_page(&tab.url) {
+                let active = global_enabled && !self.adblock.is_host_whitelisted(&tab.url);
+                tab.engine.set_adblock_state(active);
+                if active {
                     let css = self.adblock.cosmetic_css_for_url(&tab.url);
                     tab.engine.apply_cosmetic_css(css.as_deref());
                 } else {
                     tab.engine.apply_cosmetic_css(None);
                 }
+            }
+        }
+    }
+
+    pub fn sync_adblock_state_tab(&self, tab_id: TabId) {
+        if let Some(tab) = self.collection.tabs().iter().find(|t| t.id == tab_id)
+            && !is_internal_page(&tab.url)
+        {
+            let active =
+                self.adblock.is_enabled() && !self.adblock.is_host_whitelisted(&tab.url);
+            tab.engine.set_adblock_state(active);
+            if active {
+                let css = self.adblock.cosmetic_css_for_url(&tab.url);
+                tab.engine.apply_cosmetic_css(css.as_deref());
+            } else {
+                tab.engine.apply_cosmetic_css(None);
             }
         }
     }
@@ -608,6 +792,46 @@ impl TabManager {
         let id = TabId(self.next_id);
         self.next_id += 1;
         id
+    }
+}
+
+fn is_internal_page(url: &str) -> bool {
+    is_internal_newtab(url)
+        || is_internal_blog(url)
+        || is_internal_welcome(url)
+        || is_internal_settings(url)
+}
+
+fn canonical_url_for_state(url: &str) -> String {
+    if is_internal_welcome(url) {
+        INTERNAL_WELCOME_URL.to_string()
+    } else if is_internal_settings(url) {
+        INTERNAL_SETTINGS_URL.to_string()
+    } else if is_internal_newtab(url) {
+        INTERNAL_NEWTAB_URL.to_string()
+    } else if is_internal_blog(url) {
+        INTERNAL_BLOG_URL.to_string()
+    } else {
+        url.to_string()
+    }
+}
+
+fn initial_title_for_url(url: &str) -> String {
+    if is_internal_welcome(url) {
+        "Selamat Datang".to_string()
+    } else if is_internal_settings(url) {
+        "Pengaturan".to_string()
+    } else if is_internal_newtab(url) {
+        "Beranda".to_string()
+    } else if is_internal_blog(url) {
+        "Ruthenium Notes".to_string()
+    } else {
+        let origin = format_origin_display(url).origin;
+        if origin.is_empty() {
+            "Tab Baru".to_string()
+        } else {
+            origin
+        }
     }
 }
 

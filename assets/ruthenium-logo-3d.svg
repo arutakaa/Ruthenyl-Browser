@@ -1,0 +1,25 @@
+<svg width="512" height="512" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="hexTop" x1="20" y1="10" x2="100" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#254e96"/>
+      <stop offset="100%" stop-color="#132b57"/>
+    </linearGradient>
+    <linearGradient id="hexLeft" x1="15" y1="35" x2="60" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#142d59"/>
+      <stop offset="100%" stop-color="#09152c"/>
+    </linearGradient>
+    <linearGradient id="hexRight" x1="60" y1="35" x2="105" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0c1c3b"/>
+      <stop offset="100%" stop-color="#050b18"/>
+    </linearGradient>
+    <linearGradient id="letterR" x1="40" y1="32" x2="82" y2="88" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#e0f2fe"/>
+      <stop offset="50%" stop-color="#7dd3fc"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+  </defs>
+  <polygon points="60,8 106,34 106,86 60,112 14,86 14,34" fill="url(#hexLeft)" stroke="#38bdf8" stroke-opacity="0.25" stroke-width="1.5"/>
+  <polygon points="60,8 106,34 60,60 14,34" fill="url(#hexTop)"/>
+  <polygon points="60,60 106,34 106,86 60,112" fill="url(#hexRight)"/>
+  <path d="M43 36H65.5C73.5 36 79 40.6 79 47.6C79 53.3 75.2 57.4 69.4 58.8L80.2 82H68.8L59.4 60.2H52.8V82H43V36ZM52.8 44.2V52.6H64.4C68.1 52.6 70.2 50.8 70.2 48.4C70.2 45.9 68.1 44.2 64.4 44.2H52.8Z" fill="url(#letterR)"/>
+</svg>

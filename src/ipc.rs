@@ -4,6 +4,8 @@ use tao::window::ResizeDirection;
 
 pub const INTERNAL_NEWTAB_URL: &str = "http://browser.localhost/newtab";
 pub const INTERNAL_BLOG_URL: &str = "http://browser.localhost/blog";
+pub const INTERNAL_WELCOME_URL: &str = "http://browser.localhost/welcome";
+pub const INTERNAL_SETTINGS_URL: &str = "http://browser.localhost/settings";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TabId(pub u64);
@@ -58,6 +60,28 @@ pub enum AppEvent {
     SetAdblockEnabled(bool),
     RefreshAdblockLists,
     AdblockUpdated,
+    WelcomeComplete,
+    OpenDefaultBrowserSettings,
+    OpenWelcomeGuide,
+    OpenSettings(Option<String>),
+    ToggleActiveSiteAdblock,
+    SetStartupMode(String),
+    SetStartupUrl(String),
+    SetDefaultZoom(u16),
+    SetShowHomeClock(bool),
+    SetShowHomeShortcuts(bool),
+    SetSuggestEnabled(bool),
+    AddAdblockWhitelist(String),
+    RemoveAdblockWhitelist(String),
+    ClearBrowsingData {
+        cache: bool,
+        cookies: bool,
+        search_history: bool,
+    },
+    BrowsingDataCleared(bool),
+    PickDownloadFolder,
+    OpenDownloadFolder,
+    ResetAllSettings,
     TabAdBlocked {
         tab_id: TabId,
         count: u64,
@@ -125,6 +149,10 @@ pub fn parse_shell_ipc(message: &str) -> Option<AppEvent> {
         "prefs:adblock:on" => Some(AppEvent::SetAdblockEnabled(true)),
         "prefs:adblock:off" => Some(AppEvent::SetAdblockEnabled(false)),
         "adblock:refresh" => Some(AppEvent::RefreshAdblockLists),
+        "prefs:default_browser" => Some(AppEvent::OpenDefaultBrowserSettings),
+        "prefs:open_welcome" => Some(AppEvent::OpenWelcomeGuide),
+        "settings:open" => Some(AppEvent::OpenSettings(None)),
+        "adblock:toggle_site" => Some(AppEvent::ToggleActiveSiteAdblock),
         _ => {
             if let Some(target) = message.strip_prefix("nav:go:") {
                 return Some(AppEvent::Navigate(target.to_string()));
@@ -272,7 +300,69 @@ pub fn parse_authenticated_content_ipc(
         "key:forward" => Some(AppEvent::Forward),
         "key:stop" => Some(AppEvent::Stop),
         "newtab:history:clear" => Some(AppEvent::ClearSearchHistory),
+        "welcome:complete" => Some(AppEvent::WelcomeComplete),
+        "welcome:default_browser" => Some(AppEvent::OpenDefaultBrowserSettings),
+        "key:open_settings" => Some(AppEvent::OpenSettings(None)),
+        "settings:adblock:on" => Some(AppEvent::SetAdblockEnabled(true)),
+        "settings:adblock:off" => Some(AppEvent::SetAdblockEnabled(false)),
+        "settings:adblock:refresh" => Some(AppEvent::RefreshAdblockLists),
+        "settings:home_clock:on" => Some(AppEvent::SetShowHomeClock(true)),
+        "settings:home_clock:off" => Some(AppEvent::SetShowHomeClock(false)),
+        "settings:home_shortcuts:on" => Some(AppEvent::SetShowHomeShortcuts(true)),
+        "settings:home_shortcuts:off" => Some(AppEvent::SetShowHomeShortcuts(false)),
+        "settings:suggest:on" => Some(AppEvent::SetSuggestEnabled(true)),
+        "settings:suggest:off" => Some(AppEvent::SetSuggestEnabled(false)),
+        "settings:downloads:pick" => Some(AppEvent::PickDownloadFolder),
+        "settings:downloads:open" => Some(AppEvent::OpenDownloadFolder),
+        "settings:default_browser" => Some(AppEvent::OpenDefaultBrowserSettings),
+        "settings:open_welcome" => Some(AppEvent::OpenWelcomeGuide),
+        "settings:reset" => Some(AppEvent::ResetAllSettings),
         _ => {
+            if let Some(mode) = payload.strip_prefix("settings:startup:") {
+                return Some(AppEvent::SetStartupMode(mode.to_string()));
+            }
+            if let Some(url) = payload.strip_prefix("settings:startup_url:") {
+                return Some(AppEvent::SetStartupUrl(url.to_string()));
+            }
+            if let Some(raw_zoom) = payload.strip_prefix("settings:zoom:") {
+                let zoom = raw_zoom.trim().parse::<u16>().ok()?;
+                return Some(AppEvent::SetDefaultZoom(zoom));
+            }
+            if let Some(domain) = payload.strip_prefix("settings:whitelist:add:") {
+                let trimmed = domain.trim();
+                if !trimmed.is_empty() {
+                    return Some(AppEvent::AddAdblockWhitelist(trimmed.to_string()));
+                }
+                return None;
+            }
+            if let Some(domain) = payload.strip_prefix("settings:whitelist:remove:") {
+                let trimmed = domain.trim();
+                if !trimmed.is_empty() {
+                    return Some(AppEvent::RemoveAdblockWhitelist(trimmed.to_string()));
+                }
+                return None;
+            }
+            if let Some(flags) = payload.strip_prefix("settings:clear_data:") {
+                let mut cache = false;
+                let mut cookies = false;
+                let mut search_history = false;
+                for part in flags.split(',').map(str::trim) {
+                    match part {
+                        "cache" => cache = true,
+                        "cookies" => cookies = true,
+                        "history" => search_history = true,
+                        _ => {}
+                    }
+                }
+                if cache || cookies || search_history {
+                    return Some(AppEvent::ClearBrowsingData {
+                        cache,
+                        cookies,
+                        search_history,
+                    });
+                }
+                return None;
+            }
             if let Some(raw_theme) = payload.strip_prefix("newtab:theme:") {
                 let theme = BrowserTheme::from_wire(raw_theme)?;
                 return Some(AppEvent::SetTheme(theme));
@@ -375,6 +465,7 @@ pub fn map_window_shortcut(
             KeyCode::KeyL if !shift && !event.repeat => Some(AppEvent::FocusAddressBar),
             KeyCode::KeyB if !shift && !event.repeat => Some(AppEvent::ToggleSidebar),
             KeyCode::KeyR if !shift && !event.repeat => Some(AppEvent::Reload),
+            KeyCode::Comma if !shift && !event.repeat => Some(AppEvent::OpenSettings(None)),
             KeyCode::Digit1 if !shift => Some(AppEvent::SelectTabSlot(1)),
             KeyCode::Digit2 if !shift => Some(AppEvent::SelectTabSlot(2)),
             KeyCode::Digit3 if !shift => Some(AppEvent::SelectTabSlot(3)),
@@ -424,6 +515,22 @@ pub fn is_internal_blog(url: &str) -> bool {
         || trimmed == "browser://localhost/blog"
         || trimmed == "http://browser.localhost/blog"
         || trimmed == "https://browser.localhost/blog"
+}
+
+pub fn is_internal_welcome(url: &str) -> bool {
+    let trimmed = url.trim_end_matches('/');
+    trimmed == "browser://welcome"
+        || trimmed == "browser://localhost/welcome"
+        || trimmed == "http://browser.localhost/welcome"
+        || trimmed == "https://browser.localhost/welcome"
+}
+
+pub fn is_internal_settings(url: &str) -> bool {
+    let base = url.split('#').next().unwrap_or(url).trim_end_matches('/');
+    base == "browser://settings"
+        || base == "browser://localhost/settings"
+        || base == "http://browser.localhost/settings"
+        || base == "https://browser.localhost/settings"
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -514,6 +621,12 @@ pub fn resolve_navigation_input_with_engine(raw: &str, engine: SearchEngine) -> 
     if is_internal_blog(input) {
         return INTERNAL_BLOG_URL.to_string();
     }
+    if is_internal_welcome(input) {
+        return INTERNAL_WELCOME_URL.to_string();
+    }
+    if is_internal_settings(input) {
+        return INTERNAL_SETTINGS_URL.to_string();
+    }
 
     if input.starts_with("https://") || input.starts_with("http://") {
         return input.to_string();
@@ -546,7 +659,12 @@ fn looks_like_host_or_url(input: &str) -> bool {
 
 pub fn is_recordable_search_query(raw: &str) -> bool {
     let input = raw.trim();
-    if input.is_empty() || is_internal_newtab(input) || is_internal_blog(input) {
+    if input.is_empty()
+        || is_internal_newtab(input)
+        || is_internal_blog(input)
+        || is_internal_welcome(input)
+        || is_internal_settings(input)
+    {
         return false;
     }
     let lower = input.to_ascii_lowercase();
@@ -599,6 +717,24 @@ pub fn format_origin_display(url: &str) -> OriginDisplay {
         return OriginDisplay {
             raw_url: INTERNAL_BLOG_URL.to_string(),
             origin: "browser://blog".to_string(),
+            path: String::new(),
+            security: "internal",
+        };
+    }
+
+    if is_internal_welcome(url) {
+        return OriginDisplay {
+            raw_url: INTERNAL_WELCOME_URL.to_string(),
+            origin: "browser://welcome".to_string(),
+            path: String::new(),
+            security: "internal",
+        };
+    }
+
+    if is_internal_settings(url) {
+        return OriginDisplay {
+            raw_url: INTERNAL_SETTINGS_URL.to_string(),
+            origin: "browser://settings".to_string(),
             path: String::new(),
             security: "internal",
         };
@@ -934,5 +1070,71 @@ mod tests {
         assert!(
             parse_authenticated_content_ipc(id, "tok", "wrong:adblock:probe:ad-slot|").is_none()
         );
+    }
+
+    #[test]
+    fn parses_welcome_and_default_browser_routes_and_ipc() {
+        assert_eq!(resolve_navigation_input("browser://welcome"), INTERNAL_WELCOME_URL);
+        assert!(!is_recordable_search_query("browser://welcome"));
+        let welcome_origin = format_origin_display(INTERNAL_WELCOME_URL);
+        assert_eq!(welcome_origin.origin, "browser://welcome");
+        assert_eq!(welcome_origin.security, "internal");
+
+        assert!(matches!(
+            parse_shell_ipc("prefs:default_browser"),
+            Some(AppEvent::OpenDefaultBrowserSettings)
+        ));
+        assert!(matches!(
+            parse_shell_ipc("prefs:open_welcome"),
+            Some(AppEvent::OpenWelcomeGuide)
+        ));
+
+        let id = TabId(5);
+        assert!(matches!(
+            parse_authenticated_content_ipc(id, "tok", "tok:welcome:complete"),
+            Some(AppEvent::WelcomeComplete)
+        ));
+        assert!(matches!(
+            parse_authenticated_content_ipc(id, "tok", "tok:welcome:default_browser"),
+            Some(AppEvent::OpenDefaultBrowserSettings)
+        ));
+        assert!(parse_authenticated_content_ipc(id, "tok", "wrong:welcome:complete").is_none());
+
+        assert_eq!(resolve_navigation_input("browser://settings"), INTERNAL_SETTINGS_URL);
+        assert!(is_internal_settings("http://browser.localhost/settings#privacy"));
+        assert!(!is_recordable_search_query("browser://settings"));
+        let settings_origin = format_origin_display(INTERNAL_SETTINGS_URL);
+        assert_eq!(settings_origin.origin, "browser://settings");
+        assert_eq!(settings_origin.security, "internal");
+
+        assert!(matches!(
+            parse_shell_ipc("settings:open"),
+            Some(AppEvent::OpenSettings(None))
+        ));
+        assert!(matches!(
+            parse_shell_ipc("adblock:toggle_site"),
+            Some(AppEvent::ToggleActiveSiteAdblock)
+        ));
+        assert!(matches!(
+            parse_authenticated_content_ipc(id, "tok", "tok:settings:zoom:125"),
+            Some(AppEvent::SetDefaultZoom(125))
+        ));
+        assert!(matches!(
+            parse_authenticated_content_ipc(id, "tok", "tok:settings:whitelist:add:kompas.com"),
+            Some(AppEvent::AddAdblockWhitelist(ref d)) if d == "kompas.com"
+        ));
+        assert!(matches!(
+            parse_authenticated_content_ipc(id, "tok", "tok:settings:clear_data:cache,history"),
+            Some(AppEvent::ClearBrowsingData {
+                cache: true,
+                cookies: false,
+                search_history: true,
+            })
+        ));
+        assert!(parse_authenticated_content_ipc(id, "tok", "tok:settings:clear_data:none").is_none());
+        assert!(matches!(
+            parse_authenticated_content_ipc(id, "tok", "tok:key:open_settings"),
+            Some(AppEvent::OpenSettings(None))
+        ));
     }
 }

@@ -9,6 +9,8 @@ mod icon;
 mod ipc;
 mod layout;
 mod omnibox;
+mod onboarding;
+mod settings;
 mod shell;
 mod suggest;
 mod tabs;

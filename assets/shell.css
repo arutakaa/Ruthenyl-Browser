@@ -702,6 +702,14 @@ select:focus-visible,
   gap: 6px;
 }
 
+.sidebar-panel-title {
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--cr-fg);
+}
+
 .sidebar-switcher {
   flex: 1;
   min-width: 0;

@@ -21,7 +21,7 @@
       } catch (_) {}
     })();
   </script>
-  <link rel="stylesheet" href="/shell.css?v=9">
+  <link rel="stylesheet" href="/shell.css?v=11">
 </head>
 <body>
   <div class="shell-root" id="shell-root">
@@ -218,10 +218,8 @@
           type="button"
           class="nav-btn"
           id="btn-settings"
-          aria-expanded="false"
-          aria-controls="sidebar"
-          aria-label="Pengaturan browser"
-          title="Pengaturan"
+          aria-label="Pengaturan browser (Ctrl+,)"
+          title="Pengaturan (Ctrl+,)"
         >
           <svg class="icon-16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="3"></circle>
@@ -236,10 +234,7 @@
     <!-- Collapsible Left Side Panel -->
     <aside class="sidebar" id="sidebar" aria-label="Panel samping" hidden>
       <div class="sidebar-header">
-        <div class="sidebar-switcher" role="group" aria-label="Kategori panel">
-          <button type="button" class="switcher-btn" data-panel-tab="workspace" aria-pressed="true">Panel</button>
-          <button type="button" class="switcher-btn" data-panel-tab="settings" aria-pressed="false">Setelan</button>
-        </div>
+        <span class="sidebar-panel-title">Panel</span>
         <button type="button" class="panel-close-btn" id="sidebar-close-btn" aria-label="Tutup panel samping" title="Tutup">
           <svg class="icon-12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
             <path d="M4 4l8 8M12 4l-8 8"></path>
@@ -267,48 +262,6 @@
             ></textarea>
           </div>
         </div>
-
-        <section class="sidebar-section settings-panel" id="panel-settings" aria-label="Pengaturan Browser" hidden>
-          <div class="panel-list-card">
-            <div class="panel-setting-block">
-              <span class="panel-control-title">Tema tampilan</span>
-              <div class="segmented-control" role="group" aria-label="Tema tampilan">
-                <button type="button" class="segment-btn" data-shell-theme="arctic" aria-pressed="true">Arctic</button>
-                <button type="button" class="segment-btn" data-shell-theme="midnight" aria-pressed="false">Midnight</button>
-                <button type="button" class="segment-btn" data-shell-theme="aurora" aria-pressed="false">Aurora</button>
-              </div>
-            </div>
-
-            <div class="panel-setting-block">
-              <label class="panel-control-title" for="engine-select">Mesin pencari default</label>
-              <select class="panel-select" id="engine-select">
-                <option value="google">Google</option>
-                <option value="duckduckgo">DuckDuckGo</option>
-                <option value="bing">Bing</option>
-              </select>
-            </div>
-
-            <div class="panel-setting-block">
-              <div class="panel-switch-row">
-                <span class="panel-control-title" id="adblock-label">Pemblokir iklan &amp; pelacak</span>
-                <button
-                  type="button"
-                  class="panel-switch"
-                  id="adblock-switch"
-                  role="switch"
-                  aria-checked="true"
-                  aria-labelledby="adblock-label"
-                >
-                  <span class="panel-switch-thumb" aria-hidden="true"></span>
-                </button>
-              </div>
-              <p class="panel-setting-hint" id="adblock-status-text">Aktif (Agresif) · Filter dasar siap</p>
-              <button type="button" class="panel-action-btn" id="btn-adblock-refresh">Perbarui 10 daftar filter</button>
-            </div>
-          </div>
-
-          <p class="panel-status" id="settings-status" role="status" aria-live="polite"></p>
-        </section>
       </div>
 
       <div class="sidebar-footer">
@@ -330,6 +283,6 @@
 
     <main class="viewport-frame" id="viewport-frame" aria-hidden="true"></main>
   </div>
-  <script src="/shell.js?v=9"></script>
+  <script src="/shell.js?v=11"></script>
 </body>
 </html>
