@@ -1,12 +1,14 @@
-// Hide the console window in release builds while keeping stderr visible during development.
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// Hide the console window in app binaries while keeping stdout/stderr visible for `cargo test`.
+#![cfg_attr(not(test), windows_subsystem = "windows")]
 
+mod adblock;
 mod app;
 mod engine;
 mod error;
 mod icon;
 mod ipc;
 mod layout;
+mod omnibox;
 mod shell;
 mod suggest;
 mod tabs;

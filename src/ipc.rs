@@ -8,6 +8,14 @@ pub const INTERNAL_BLOG_URL: &str = "http://browser.localhost/blog";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TabId(pub u64);
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct OmniboxPopupBounds {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     ShellReady,
@@ -17,6 +25,7 @@ pub enum AppEvent {
     Reload,
     Stop,
     NewTab,
+    OpenUrlInNewTab(String),
     SelectTab(TabId),
     CloseTab(TabId),
     CloseActiveTab,
@@ -25,6 +34,20 @@ pub enum AppEvent {
     SelectTabSlot(usize),
     FocusContent,
     FocusAddressBar,
+    OmniboxOpen {
+        bounds: OmniboxPopupBounds,
+        payload: String,
+    },
+    OmniboxSelect(i32),
+    OmniboxClose,
+    OmniboxBlur,
+    OmniboxPopupGo(String),
+    OmniboxPopupFill(String),
+    OmniboxPopupDeleteHistory(String),
+    OmniboxPopupClearHistory,
+    OmniboxPopupDismiss,
+    RemoveSearchHistory(String),
+    ClearSearchHistory,
     ToggleSidebar,
     SetSidebarOpen(bool),
     SetSidebarWidth(f64),
@@ -32,6 +55,18 @@ pub enum AppEvent {
     SetTheme(BrowserTheme),
     SetSearchEngine(SearchEngine),
     SetProfileName(String),
+    SetAdblockEnabled(bool),
+    RefreshAdblockLists,
+    AdblockUpdated,
+    TabAdBlocked {
+        tab_id: TabId,
+        count: u64,
+    },
+    CosmeticProbe {
+        tab_id: TabId,
+        classes: Vec<String>,
+        ids: Vec<String>,
+    },
     Minimize,
     ToggleMaximize,
     Close,
@@ -84,9 +119,59 @@ pub fn parse_shell_ipc(message: &str) -> Option<AppEvent> {
         "win:maximize" => Some(AppEvent::ToggleMaximize),
         "win:close" => Some(AppEvent::Close),
         "win:drag" => Some(AppEvent::DragWindow),
+        "omnibox:close" => Some(AppEvent::OmniboxClose),
+        "omnibox:blur" => Some(AppEvent::OmniboxBlur),
+        "history:clear" => Some(AppEvent::ClearSearchHistory),
+        "prefs:adblock:on" => Some(AppEvent::SetAdblockEnabled(true)),
+        "prefs:adblock:off" => Some(AppEvent::SetAdblockEnabled(false)),
+        "adblock:refresh" => Some(AppEvent::RefreshAdblockLists),
         _ => {
             if let Some(target) = message.strip_prefix("nav:go:") {
                 return Some(AppEvent::Navigate(target.to_string()));
+            }
+            if let Some(raw_idx) = message.strip_prefix("omnibox:select:") {
+                let idx = raw_idx.parse::<i32>().ok()?;
+                if (-1..=32).contains(&idx) {
+                    return Some(AppEvent::OmniboxSelect(idx));
+                }
+                return None;
+            }
+            if let Some(rest) = message.strip_prefix("omnibox:open:") {
+                let (coords, payload) = rest.split_once('|')?;
+                if payload.is_empty() {
+                    return None;
+                }
+                let mut parts = coords.split(',');
+                let x = parts.next()?.parse::<f64>().ok()?;
+                let y = parts.next()?.parse::<f64>().ok()?;
+                let width = parts.next()?.parse::<f64>().ok()?;
+                let height = parts.next()?.parse::<f64>().ok()?;
+                if parts.next().is_some()
+                    || !x.is_finite()
+                    || !y.is_finite()
+                    || !width.is_finite()
+                    || !height.is_finite()
+                    || width < 100.0
+                    || height < 36.0
+                {
+                    return None;
+                }
+                return Some(AppEvent::OmniboxOpen {
+                    bounds: OmniboxPopupBounds {
+                        x,
+                        y,
+                        width,
+                        height,
+                    },
+                    payload: payload.to_string(),
+                });
+            }
+            if let Some(query) = message.strip_prefix("history:remove:") {
+                let trimmed = query.trim();
+                if !trimmed.is_empty() {
+                    return Some(AppEvent::RemoveSearchHistory(trimmed.to_string()));
+                }
+                return None;
             }
             if let Some(raw_id) = message.strip_prefix("tab:select:") {
                 let id = raw_id.parse::<u64>().ok()?;
@@ -137,6 +222,37 @@ pub fn parse_shell_ipc(message: &str) -> Option<AppEvent> {
     }
 }
 
+pub fn parse_omnibox_popup_ipc(message: &str) -> Option<AppEvent> {
+    match message {
+        "popup:clear_history" => Some(AppEvent::OmniboxPopupClearHistory),
+        "popup:dismiss" => Some(AppEvent::OmniboxPopupDismiss),
+        _ => {
+            if let Some(target) = message.strip_prefix("popup:go:") {
+                let trimmed = target.trim();
+                if !trimmed.is_empty() {
+                    return Some(AppEvent::OmniboxPopupGo(trimmed.to_string()));
+                }
+                return None;
+            }
+            if let Some(query) = message.strip_prefix("popup:fill:") {
+                let trimmed = query.trim();
+                if !trimmed.is_empty() {
+                    return Some(AppEvent::OmniboxPopupFill(trimmed.to_string()));
+                }
+                return None;
+            }
+            if let Some(query) = message.strip_prefix("popup:del_history:") {
+                let trimmed = query.trim();
+                if !trimmed.is_empty() {
+                    return Some(AppEvent::OmniboxPopupDeleteHistory(trimmed.to_string()));
+                }
+                return None;
+            }
+            None
+        }
+    }
+}
+
 pub fn parse_authenticated_content_ipc(
     tab_id: TabId,
     expected_token: &str,
@@ -155,6 +271,7 @@ pub fn parse_authenticated_content_ipc(
         "key:back" => Some(AppEvent::Back),
         "key:forward" => Some(AppEvent::Forward),
         "key:stop" => Some(AppEvent::Stop),
+        "newtab:history:clear" => Some(AppEvent::ClearSearchHistory),
         _ => {
             if let Some(raw_theme) = payload.strip_prefix("newtab:theme:") {
                 let theme = BrowserTheme::from_wire(raw_theme)?;
@@ -169,6 +286,13 @@ pub fn parse_authenticated_content_ipc(
             }
             if let Some(query) = payload.strip_prefix("newtab:go:") {
                 return Some(AppEvent::Navigate(query.to_string()));
+            }
+            if let Some(query) = payload.strip_prefix("newtab:history:remove:") {
+                let trimmed = query.trim();
+                if !trimmed.is_empty() {
+                    return Some(AppEvent::RemoveSearchHistory(trimmed.to_string()));
+                }
+                return None;
             }
             if let Some(raw_name) = payload.strip_prefix("newtab:name:") {
                 return Some(AppEvent::SetProfileName(sanitize_profile_name(raw_name)));
@@ -191,9 +315,37 @@ pub fn parse_authenticated_content_ipc(
                     },
                 });
             }
+            if let Some(raw_probe) = payload.strip_prefix("adblock:probe:") {
+                let (raw_classes, raw_ids) = raw_probe.split_once('|')?;
+                let classes = parse_css_ident_list(raw_classes, 128);
+                let ids = parse_css_ident_list(raw_ids, 128);
+                if classes.is_empty() && ids.is_empty() {
+                    return None;
+                }
+                return Some(AppEvent::CosmeticProbe {
+                    tab_id,
+                    classes,
+                    ids,
+                });
+            }
             None
         }
     }
+}
+
+fn parse_css_ident_list(raw: &str, max: usize) -> Vec<String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|tok| {
+            !tok.is_empty()
+                && tok.len() <= 64
+                && tok
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+        })
+        .take(max)
+        .map(str::to_string)
+        .collect()
 }
 
 pub fn map_window_shortcut(
@@ -390,6 +542,21 @@ fn looks_like_host_or_url(input: &str) -> bool {
     }
     let host = host_port.split(':').next().unwrap_or(host_port);
     host.contains('.') && !host.starts_with('.') && !host.ends_with('.')
+}
+
+pub fn is_recordable_search_query(raw: &str) -> bool {
+    let input = raw.trim();
+    if input.is_empty() || is_internal_newtab(input) || is_internal_blog(input) {
+        return false;
+    }
+    let lower = input.to_ascii_lowercase();
+    if lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("browser://")
+    {
+        return false;
+    }
+    !looks_like_host_or_url(input)
 }
 
 pub(crate) fn percent_encode_query(input: &str) -> String {
@@ -637,5 +804,135 @@ mod tests {
             Some(AppEvent::SetTheme(BrowserTheme::Arctic))
         ));
         assert!(parse_shell_ipc("theme:auto").is_none());
+    }
+
+    #[test]
+    fn parses_omnibox_popup_and_history_ipc_messages() {
+        assert!(matches!(
+            parse_shell_ipc("omnibox:close"),
+            Some(AppEvent::OmniboxClose)
+        ));
+        assert!(matches!(
+            parse_shell_ipc("omnibox:blur"),
+            Some(AppEvent::OmniboxBlur)
+        ));
+        assert!(matches!(
+            parse_shell_ipc("history:clear"),
+            Some(AppEvent::ClearSearchHistory)
+        ));
+        assert!(matches!(
+            parse_shell_ipc("history:remove:rust webview2"),
+            Some(AppEvent::RemoveSearchHistory(ref q)) if q == "rust webview2"
+        ));
+        assert!(parse_shell_ipc("history:remove:   ").is_none());
+
+        assert!(matches!(
+            parse_shell_ipc("omnibox:select:-1"),
+            Some(AppEvent::OmniboxSelect(-1))
+        ));
+        assert!(matches!(
+            parse_shell_ipc("omnibox:select:7"),
+            Some(AppEvent::OmniboxSelect(7))
+        ));
+        assert!(parse_shell_ipc("omnibox:select:-2").is_none());
+        assert!(parse_shell_ipc("omnibox:select:40").is_none());
+
+        match parse_shell_ipc("omnibox:open:120.5,83,640,210|{\"query\":\"rust\"}") {
+            Some(AppEvent::OmniboxOpen { bounds, payload }) => {
+                assert_eq!(bounds.x, 120.5);
+                assert_eq!(bounds.y, 83.0);
+                assert_eq!(bounds.width, 640.0);
+                assert_eq!(bounds.height, 210.0);
+                assert_eq!(payload, "{\"query\":\"rust\"}");
+            }
+            _ => panic!("expected OmniboxOpen event"),
+        }
+        assert!(parse_shell_ipc("omnibox:open:120,83,80,210|{}").is_none());
+        assert!(parse_shell_ipc("omnibox:open:120,83,500,20|{}").is_none());
+        assert!(parse_shell_ipc("omnibox:open:120,83,500,200|").is_none());
+
+        assert!(matches!(
+            parse_omnibox_popup_ipc("popup:go:crates.io"),
+            Some(AppEvent::OmniboxPopupGo(ref q)) if q == "crates.io"
+        ));
+        assert!(matches!(
+            parse_omnibox_popup_ipc("popup:fill:rust lang"),
+            Some(AppEvent::OmniboxPopupFill(ref q)) if q == "rust lang"
+        ));
+        assert!(matches!(
+            parse_omnibox_popup_ipc("popup:del_history:old query"),
+            Some(AppEvent::OmniboxPopupDeleteHistory(ref q)) if q == "old query"
+        ));
+        assert!(matches!(
+            parse_omnibox_popup_ipc("popup:clear_history"),
+            Some(AppEvent::OmniboxPopupClearHistory)
+        ));
+        assert!(matches!(
+            parse_omnibox_popup_ipc("popup:dismiss"),
+            Some(AppEvent::OmniboxPopupDismiss)
+        ));
+        assert!(parse_omnibox_popup_ipc("popup:go:  ").is_none());
+
+        let id = TabId(9);
+        assert!(matches!(
+            parse_authenticated_content_ipc(id, "tok", "tok:newtab:history:clear"),
+            Some(AppEvent::ClearSearchHistory)
+        ));
+        assert!(matches!(
+            parse_authenticated_content_ipc(id, "tok", "tok:newtab:history:remove:wry rust"),
+            Some(AppEvent::RemoveSearchHistory(ref q)) if q == "wry rust"
+        ));
+        assert!(parse_authenticated_content_ipc(id, "tok", "wrong:newtab:history:clear").is_none());
+    }
+
+    #[test]
+    fn validates_recordable_search_queries() {
+        assert!(!is_recordable_search_query(""));
+        assert!(!is_recordable_search_query("   "));
+        assert!(!is_recordable_search_query("http://browser.localhost/newtab"));
+        assert!(!is_recordable_search_query("HTTPS://example.com/search"));
+        assert!(!is_recordable_search_query("youtube.com"));
+        assert!(!is_recordable_search_query("localhost:5173"));
+        assert!(is_recordable_search_query("youtube tutorial rust"));
+        assert!(is_recordable_search_query("ruthenium"));
+    }
+
+    #[test]
+    fn parses_adblock_ipc_messages() {
+        assert!(matches!(
+            parse_shell_ipc("prefs:adblock:on"),
+            Some(AppEvent::SetAdblockEnabled(true))
+        ));
+        assert!(matches!(
+            parse_shell_ipc("prefs:adblock:off"),
+            Some(AppEvent::SetAdblockEnabled(false))
+        ));
+        assert!(matches!(
+            parse_shell_ipc("adblock:refresh"),
+            Some(AppEvent::RefreshAdblockLists)
+        ));
+
+        let id = TabId(3);
+        match parse_authenticated_content_ipc(
+            id,
+            "tok",
+            "tok:adblock:probe:ad-slot,bad{color:red},hero-card|div-gpt-ad-1,bad</style>",
+        ) {
+            Some(AppEvent::CosmeticProbe {
+                tab_id,
+                classes,
+                ids,
+            }) => {
+                assert_eq!(tab_id, id);
+                assert_eq!(classes, vec!["ad-slot", "hero-card"]);
+                assert_eq!(ids, vec!["div-gpt-ad-1"]);
+            }
+            _ => panic!("expected CosmeticProbe event"),
+        }
+
+        assert!(parse_authenticated_content_ipc(id, "tok", "tok:adblock:probe:|").is_none());
+        assert!(
+            parse_authenticated_content_ipc(id, "tok", "wrong:adblock:probe:ad-slot|").is_none()
+        );
     }
 }

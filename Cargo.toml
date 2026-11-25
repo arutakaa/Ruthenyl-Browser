@@ -4,7 +4,17 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 publish = false
+default-run = "Ruthenium"
+
+[[bin]]
+name = "Ruthenium"
+path = "src/main.rs"
 
 [dependencies]
+adblock = { version = "0.13.6", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling"] }
 tao = "0.37.3"
 wry = "0.57.3"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+webview2-com = "0.39"
+windows-core = "0.62"

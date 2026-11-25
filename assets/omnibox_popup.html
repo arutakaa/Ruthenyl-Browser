@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="id" data-theme="arctic">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Omnibox Suggestions</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/omnibox-popup.css?v=7">
+</head>
+<body>
+  <div class="popup-stage" id="popup-stage">
+    <div class="popup-card" id="popup-card">
+      <div class="popup-divider" aria-hidden="true"></div>
+      <ul id="popup-list" class="popup-list" role="listbox" aria-label="Saran pencarian"></ul>
+      <div id="popup-footer" class="popup-footer" hidden>
+        <button type="button" id="btn-clear-history" class="popup-clear-all-btn">Hapus semua riwayat</button>
+      </div>
+    </div>
+  </div>
+  <script src="/omnibox-popup.js?v=7"></script>
+</body>
+</html>

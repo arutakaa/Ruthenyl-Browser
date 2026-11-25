@@ -1,8 +1,18 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use tao::event_loop::EventLoopProxy;
 use tao::window::Window;
-use wry::{Rect, WebContext};
+#[cfg(target_os = "windows")]
+use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Environment;
+use wry::Rect;
+#[cfg(not(target_os = "windows"))]
+use wry::WebContext;
 
-use crate::engine::{ContentAttachOptions, ContentEngine, content_data_dir};
+use crate::adblock::AdblockService;
+#[cfg(not(target_os = "windows"))]
+use crate::engine::content_data_dir;
+use crate::engine::{ContentAttachOptions, ContentEngine};
 use crate::error::BrowserError;
 use crate::ipc::{
     AppEvent, BrowserTheme, INTERNAL_NEWTAB_URL, TabId, format_origin_display, is_internal_blog,
@@ -31,6 +41,8 @@ pub struct TabEntry<E> {
     pub title: String,
     pub favicon_url: Option<String>,
     pub is_loading: bool,
+    pub blocked_count: u64,
+    blocked_counter: Arc<AtomicU64>,
     pub engine: E,
 }
 
@@ -42,6 +54,8 @@ impl<E> TabEntry<E> {
             title: "Beranda".to_string(),
             favicon_url: None,
             is_loading: false,
+            blocked_count: 0,
+            blocked_counter: Arc::new(AtomicU64::new(0)),
             engine,
         }
     }
@@ -212,10 +226,14 @@ impl<E: TabRuntimeOps> TabCollection<E> {
 }
 
 pub struct TabManager {
-    // Drop all child WebView instances before dropping the shared WebContext.
+    // Drop all child WebView instances before dropping the shared WebContext/environment.
     collection: TabCollection<ContentEngine>,
     next_id: u64,
     theme: BrowserTheme,
+    adblock: AdblockService,
+    #[cfg(target_os = "windows")]
+    shared_env: ICoreWebView2Environment,
+    #[cfg(not(target_os = "windows"))]
     context: WebContext,
     proxy: EventLoopProxy<AppEvent>,
 }
@@ -224,27 +242,45 @@ impl TabManager {
     pub fn new(
         window: &Window,
         initial_bounds: Rect,
+        #[cfg(target_os = "windows")] shared_env: ICoreWebView2Environment,
+        adblock: AdblockService,
         proxy: EventLoopProxy<AppEvent>,
     ) -> Result<Self, BrowserError> {
+        #[cfg(not(target_os = "windows"))]
         let mut context = WebContext::new(Some(content_data_dir()));
         let first_id = TabId(1);
         let theme = BrowserTheme::default();
+        let first_counter = Arc::new(AtomicU64::new(0));
         let first_engine = ContentEngine::attach(
             window,
             ContentAttachOptions {
                 tab_id: first_id,
+                #[cfg(target_os = "windows")]
+                shared_env: &shared_env,
+                #[cfg(not(target_os = "windows"))]
                 context: &mut context,
                 bounds: initial_bounds,
                 visible: true,
                 is_dark: theme.is_dark(),
+                adblock: adblock.clone(),
+                blocked_counter: Arc::clone(&first_counter),
                 proxy: proxy.clone(),
             },
         )?;
 
+        let mut collection = TabCollection::new(first_id, first_engine, initial_bounds);
+        if let Some(tab) = collection.tab_mut(first_id) {
+            tab.blocked_counter = first_counter;
+        }
+
         Ok(Self {
-            collection: TabCollection::new(first_id, first_engine, initial_bounds),
+            collection,
             next_id: 2,
             theme,
+            adblock,
+            #[cfg(target_os = "windows")]
+            shared_env,
+            #[cfg(not(target_os = "windows"))]
             context,
             proxy,
         })
@@ -278,6 +314,30 @@ impl TabManager {
         }
     }
 
+    pub fn sync_history_add_all(&self, query: &str) {
+        for tab in self.collection.tabs() {
+            if is_internal_newtab(&tab.url) {
+                tab.engine.sync_history_add(query);
+            }
+        }
+    }
+
+    pub fn sync_history_remove_all(&self, query: &str) {
+        for tab in self.collection.tabs() {
+            if is_internal_newtab(&tab.url) {
+                tab.engine.sync_history_remove(query);
+            }
+        }
+    }
+
+    pub fn sync_history_clear_all(&self) {
+        for tab in self.collection.tabs() {
+            if is_internal_newtab(&tab.url) {
+                tab.engine.sync_history_clear();
+            }
+        }
+    }
+
     pub fn active_tab(&self) -> &TabEntry<ContentEngine> {
         self.collection.active_tab()
     }
@@ -288,8 +348,22 @@ impl TabManager {
 
     pub fn create_tab(&mut self, window: &Window, activate: bool) -> Result<TabId, BrowserError> {
         let id = self.alloc_id();
-        let engine = self.attach_tab_engine(window, id, activate)?;
+        let counter = Arc::new(AtomicU64::new(0));
+        let engine = self.attach_tab_engine(window, id, activate, Arc::clone(&counter))?;
         self.collection.insert_tab(id, engine, activate);
+        if let Some(tab) = self.collection.tab_mut(id) {
+            tab.blocked_counter = counter;
+        }
+        Ok(id)
+    }
+
+    pub fn open_url_in_new_tab(
+        &mut self,
+        window: &Window,
+        url: &str,
+    ) -> Result<TabId, BrowserError> {
+        let id = self.create_tab(window, true)?;
+        self.navigate_active(url);
         Ok(id)
     }
 
@@ -304,10 +378,15 @@ impl TabManager {
             Ok(false)
         } else {
             let replacement_id = self.alloc_id();
-            let replacement = self.attach_tab_engine(window, replacement_id, true)?;
+            let counter = Arc::new(AtomicU64::new(0));
+            let replacement =
+                self.attach_tab_engine(window, replacement_id, true, Arc::clone(&counter))?;
             let old = self
                 .collection
                 .replace_last_tab(replacement_id, replacement);
+            if let Some(tab) = self.collection.tab_mut(replacement_id) {
+                tab.blocked_counter = counter;
+            }
             drop(old);
             Ok(true)
         }
@@ -318,16 +397,22 @@ impl TabManager {
         window: &Window,
         tab_id: TabId,
         visible: bool,
+        blocked_counter: Arc<AtomicU64>,
     ) -> Result<ContentEngine, BrowserError> {
         let bounds = self.collection.bounds();
         ContentEngine::attach(
             window,
             ContentAttachOptions {
                 tab_id,
+                #[cfg(target_os = "windows")]
+                shared_env: &self.shared_env,
+                #[cfg(not(target_os = "windows"))]
                 context: &mut self.context,
                 bounds,
                 visible,
                 is_dark: self.theme.is_dark(),
+                adblock: self.adblock.clone(),
+                blocked_counter,
                 proxy: self.proxy.clone(),
             },
         )
@@ -361,6 +446,8 @@ impl TabManager {
                 tab.favicon_url = None;
             }
             tab.url = target_url.to_string();
+            tab.blocked_counter.store(0, Ordering::Relaxed);
+            tab.blocked_count = 0;
             if is_internal_newtab(target_url) {
                 tab.title = "Beranda".to_string();
                 tab.is_loading = false;
@@ -404,6 +491,12 @@ impl TabManager {
             return false;
         };
         tab.is_loading = loading;
+        if loading {
+            tab.blocked_counter.store(0, Ordering::Relaxed);
+            tab.blocked_count = 0;
+        } else {
+            tab.blocked_count = tab.blocked_counter.load(Ordering::Relaxed);
+        }
         if !url.is_empty() {
             if origin_changed(&tab.url, &url) {
                 tab.favicon_url = None;
@@ -413,8 +506,65 @@ impl TabManager {
         if is_internal_newtab(&tab.url) {
             tab.title = "Beranda".to_string();
             tab.favicon_url = None;
+            tab.blocked_counter.store(0, Ordering::Relaxed);
+            tab.blocked_count = 0;
         }
         true
+    }
+
+    pub fn update_tab_blocked_count(&mut self, tab_id: TabId, count: u64) -> bool {
+        let Some(tab) = self.collection.tab_mut(tab_id) else {
+            return false;
+        };
+        tab.blocked_count = count;
+        true
+    }
+
+    pub fn sync_tab_blocked_count(&mut self, tab_id: TabId) {
+        if let Some(tab) = self.collection.tab_mut(tab_id) {
+            tab.blocked_count = tab.blocked_counter.load(Ordering::Relaxed);
+        }
+    }
+
+    pub fn apply_cosmetic_for_tab(&self, tab_id: TabId) {
+        if let Some(tab) = self.collection.tabs().iter().find(|t| t.id == tab_id)
+            && !is_internal_newtab(&tab.url)
+            && !is_internal_blog(&tab.url)
+        {
+            let css = self.adblock.cosmetic_css_for_url(&tab.url);
+            tab.engine.apply_cosmetic_css(css.as_deref());
+        }
+    }
+
+    pub fn apply_generic_cosmetic_for_tab(
+        &self,
+        tab_id: TabId,
+        classes: &[String],
+        ids: &[String],
+    ) {
+        if let Some(tab) = self.collection.tabs().iter().find(|t| t.id == tab_id)
+            && !is_internal_newtab(&tab.url)
+            && !is_internal_blog(&tab.url)
+            && let Some(css) = self
+                .adblock
+                .generic_cosmetic_css_for_elements(&tab.url, classes, ids)
+        {
+            tab.engine.apply_generic_cosmetic_css(&css);
+        }
+    }
+
+    pub fn set_adblock_enabled_all(&self, enabled: bool) {
+        for tab in self.collection.tabs() {
+            if !is_internal_newtab(&tab.url) && !is_internal_blog(&tab.url) {
+                tab.engine.set_adblock_state(enabled);
+                if enabled {
+                    let css = self.adblock.cosmetic_css_for_url(&tab.url);
+                    tab.engine.apply_cosmetic_css(css.as_deref());
+                } else {
+                    tab.engine.apply_cosmetic_css(None);
+                }
+            }
+        }
     }
 
     pub fn handle_favicon_changed(&mut self, tab_id: TabId, favicon_url: Option<String>) -> bool {

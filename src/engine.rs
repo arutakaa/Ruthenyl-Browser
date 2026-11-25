@@ -1,16 +1,38 @@
 use std::borrow::Cow;
 use std::env;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use tao::event_loop::EventLoopProxy;
 use tao::window::Window;
+#[cfg(target_os = "windows")]
+use webview2_com::Microsoft::Web::WebView2::Win32::{
+    COREWEBVIEW2_WEB_RESOURCE_CONTEXT, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+    COREWEBVIEW2_WEB_RESOURCE_CONTEXT_CSP_VIOLATION_REPORT,
+    COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_EVENT_SOURCE,
+    COREWEBVIEW2_WEB_RESOURCE_CONTEXT_FETCH, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_FONT,
+    COREWEBVIEW2_WEB_RESOURCE_CONTEXT_IMAGE, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_MEDIA,
+    COREWEBVIEW2_WEB_RESOURCE_CONTEXT_PING, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_SCRIPT,
+    COREWEBVIEW2_WEB_RESOURCE_CONTEXT_STYLESHEET, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_WEBSOCKET,
+    COREWEBVIEW2_WEB_RESOURCE_CONTEXT_XML_HTTP_REQUEST,
+    COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL, ICoreWebView2_22,
+    ICoreWebView2Environment, ICoreWebView2HttpRequestHeaders,
+};
+#[cfg(target_os = "windows")]
+use webview2_com::{WebResourceRequestedEventHandler, take_pwstr};
+#[cfg(target_os = "windows")]
+use windows_core::{HSTRING, Interface, PWSTR};
 use wry::http::header::{CACHE_CONTROL, CONTENT_TYPE};
 use wry::http::{Request, Response};
-use wry::{PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder};
+#[cfg(not(target_os = "windows"))]
+use wry::WebContext;
+use wry::{NewWindowResponse, PageLoadEvent, Rect, WebView, WebViewBuilder};
 #[cfg(target_os = "windows")]
-use wry::{ScrollBarStyle, Theme, WebViewBuilderExtWindows};
+use wry::{ScrollBarStyle, Theme, WebViewBuilderExtWindows, WebViewExtWindows};
 
+use crate::adblock::AdblockService;
 use crate::error::BrowserError;
 use crate::ipc::{AppEvent, TabId, escape_js_string, parse_authenticated_content_ipc};
 
@@ -21,13 +43,21 @@ const NEWTAB_JS: &[u8] = include_bytes!("../assets/newtab.js");
 const RUTHENIUM_LOGO_SVG: &[u8] = include_bytes!("../assets/ruthenium-logo.svg");
 const DARK_VIEWPORT_BG: (u8, u8, u8, u8) = (8, 13, 26, 255);
 const LIGHT_VIEWPORT_BG: (u8, u8, u8, u8) = (248, 250, 252, 255);
+#[cfg(target_os = "windows")]
+pub const SHARED_WEBVIEW2_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --process-per-site --renderer-process-limit=4";
+const BASE_AGGRESSIVE_COSMETIC_CSS: &str = "ins.adsbygoogle,[id^=\"google_ads_iframe\"],[id^=\"div-gpt-ad\"],[id^=\"aswift_\"],iframe[src*=\"doubleclick.net\"],iframe[src*=\"googlesyndication.com\"],iframe[src*=\"adnxs.com\"],iframe[src*=\"taboola.com\"],iframe[src*=\"outbrain.com\"],.OUTBRAIN,[data-widget-id*=\"outbrain\"],#taboola-below-article-thumbnails,[id^=\"taboola-\"],.trc_related_container,.mgbox,[id*=\"ScriptRoot\"],.ad-slot,.ad-container,.ads-container,.advertisement,.sponsored-ad,ytd-ad-slot-renderer,ytd-in-feed-ad-layout-renderer,ytd-banner-promo-renderer,ytd-promoted-sparkles-web-renderer,ytd-promoted-sparkles-text-search-renderer,ytd-display-ad-renderer,ytd-companion-slot-renderer,ytd-action-companion-ad-renderer,ytd-promoted-video-renderer,ytd-player-legacy-desktop-watch-ads-renderer,ytd-engagement-panel-section-list-renderer[target-id=\"engagement-panel-ads\"],ytd-statement-banner-renderer,#masthead-ad,#player-ads,.ytp-ad-module,.ytp-ad-overlay-container,.ytp-ad-image-overlay,.ytp-ad-text-overlay,ytd-enforcement-message-view-model,tp-yt-paper-dialog:has(ytd-enforcement-message-view-model){display:none!important;}";
 
 pub struct ContentAttachOptions<'a> {
     pub tab_id: TabId,
+    #[cfg(target_os = "windows")]
+    pub shared_env: &'a ICoreWebView2Environment,
+    #[cfg(not(target_os = "windows"))]
     pub context: &'a mut WebContext,
     pub bounds: Rect,
     pub visible: bool,
     pub is_dark: bool,
+    pub adblock: AdblockService,
+    pub blocked_counter: Arc<AtomicU64>,
     pub proxy: EventLoopProxy<AppEvent>,
 }
 
@@ -42,14 +72,18 @@ impl ContentEngine {
     ) -> Result<Self, BrowserError> {
         let ContentAttachOptions {
             tab_id,
+            #[cfg(target_os = "windows")]
+            shared_env,
+            #[cfg(not(target_os = "windows"))]
             context,
             bounds,
             visible,
             is_dark,
+            adblock,
+            blocked_counter,
             proxy,
         } = opts;
         let cap_token = generate_capability_token(tab_id);
-        let init_script = build_content_bridge_script(&cap_token);
         let bg = if is_dark {
             DARK_VIEWPORT_BG
         } else {
@@ -57,11 +91,21 @@ impl ContentEngine {
         };
 
         let nav_proxy = proxy.clone();
+        let nw_adblock = adblock.clone();
+        let nw_counter = Arc::clone(&blocked_counter);
+        let nw_proxy = proxy.clone();
         let title_proxy = proxy.clone();
         let load_proxy = proxy.clone();
+        let adblock_proxy = proxy.clone();
         let ipc_proxy = proxy;
+        let init_script = build_content_bridge_script(&cap_token, adblock.is_enabled());
 
-        let builder = WebViewBuilder::new_with_web_context(context)
+        #[cfg(target_os = "windows")]
+        let builder = WebViewBuilder::new().with_environment(shared_env.clone());
+        #[cfg(not(target_os = "windows"))]
+        let builder = WebViewBuilder::new_with_web_context(context);
+
+        let builder = builder
             .with_bounds(bounds)
             .with_visible(visible)
             .with_focused(false)
@@ -78,6 +122,41 @@ impl ContentEngine {
             .with_navigation_handler(move |url| {
                 let _ = nav_proxy.send_event(AppEvent::TabNavigated { tab_id, url });
                 true
+            })
+            .with_new_window_req_handler(move |uri, features| {
+                #[cfg(target_os = "windows")]
+                let source_url = {
+                    let mut src_pwstr = PWSTR::null();
+                    if unsafe { features.opener.webview.Source(&mut src_pwstr) }.is_ok() {
+                        take_pwstr(src_pwstr)
+                    } else {
+                        String::new()
+                    }
+                };
+                #[cfg(not(target_os = "windows"))]
+                let source_url = {
+                    let _ = &features;
+                    String::new()
+                };
+
+                if nw_adblock.should_block_popup(&uri, &source_url) {
+                    let count = nw_counter.fetch_add(1, Ordering::Relaxed) + 1;
+                    let _ = nw_adblock.record_block();
+                    let _ = nw_proxy.send_event(AppEvent::TabAdBlocked { tab_id, count });
+                    return NewWindowResponse::Deny;
+                }
+
+                if features.size.is_none() {
+                    if uri.starts_with("https://") || uri.starts_with("http://") {
+                        let _ = nw_proxy.send_event(AppEvent::OpenUrlInNewTab(uri));
+                        return NewWindowResponse::Deny;
+                    }
+                    if nw_adblock.is_enabled() {
+                        return NewWindowResponse::Deny;
+                    }
+                }
+
+                NewWindowResponse::Allow
             })
             .with_document_title_changed_handler(move |title| {
                 let _ = title_proxy.send_event(AppEvent::TabTitleChanged { tab_id, title });
@@ -106,6 +185,12 @@ impl ContentEngine {
         let webview = builder
             .build_as_child(window)
             .map_err(BrowserError::EngineInit)?;
+
+        #[cfg(target_os = "windows")]
+        let _ = attach_adblock_interceptor(&webview, tab_id, adblock, blocked_counter, adblock_proxy);
+
+        #[cfg(not(target_os = "windows"))]
+        let _ = (adblock, blocked_counter, adblock_proxy);
 
         Ok(Self { webview })
     }
@@ -163,12 +248,275 @@ impl ContentEngine {
         let _ = self.webview.evaluate_script(&script);
     }
 
+    pub fn sync_history_add(&self, query: &str) {
+        let script = format!(
+            "if (window.__syncHistoryAdd) window.__syncHistoryAdd({});",
+            escape_js_string(query),
+        );
+        let _ = self.webview.evaluate_script(&script);
+    }
+
+    pub fn sync_history_remove(&self, query: &str) {
+        let script = format!(
+            "if (window.__syncHistoryRemove) window.__syncHistoryRemove({});",
+            escape_js_string(query),
+        );
+        let _ = self.webview.evaluate_script(&script);
+    }
+
+    pub fn sync_history_clear(&self) {
+        let _ = self
+            .webview
+            .evaluate_script("if (window.__syncHistoryClear) window.__syncHistoryClear();");
+    }
+
+    pub fn apply_cosmetic_css(&self, css: Option<&str>) {
+        let script = match css {
+            Some(rules) if !rules.is_empty() => format!(
+                r#"(() => {{
+  const id = "__ruthenium_adblock_cosmetic";
+  let el = document.getElementById(id);
+  if (!el) {{
+    el = document.createElement("style");
+    el.id = id;
+    (document.head || document.documentElement).appendChild(el);
+  }}
+  el.textContent = {};
+}})();"#,
+                escape_js_string(rules),
+            ),
+            _ => r#"(() => {
+  const el = document.getElementById("__ruthenium_adblock_cosmetic");
+  if (el) el.remove();
+})();"#
+                .to_string(),
+        };
+        let _ = self.webview.evaluate_script(&script);
+    }
+
+    pub fn apply_generic_cosmetic_css(&self, css: &str) {
+        if css.is_empty() {
+            return;
+        }
+        let script = format!(
+            r#"(() => {{
+  const id = "__ruthenium_adblock_generic";
+  let el = document.getElementById(id);
+  if (!el) {{
+    el = document.createElement("style");
+    el.id = id;
+    (document.head || document.documentElement).appendChild(el);
+  }}
+  const chunk = {};
+  if (el.textContent.length + chunk.length <= 65536) {{
+    el.textContent += chunk;
+  }}
+}})();"#,
+            escape_js_string(css),
+        );
+        let _ = self.webview.evaluate_script(&script);
+    }
+
+    pub fn set_adblock_state(&self, enabled: bool) {
+        let script = format!(
+            "if (window.__setAdblockState) window.__setAdblockState({});",
+            if enabled { "true" } else { "false" }
+        );
+        let _ = self.webview.evaluate_script(&script);
+    }
+
     pub fn can_go_back(&self) -> bool {
         self.webview.can_go_back().unwrap_or(false)
     }
 
     pub fn can_go_forward(&self) -> bool {
         self.webview.can_go_forward().unwrap_or(false)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn attach_adblock_interceptor(
+    webview: &WebView,
+    tab_id: TabId,
+    adblock: AdblockService,
+    blocked_counter: Arc<AtomicU64>,
+    proxy: EventLoopProxy<AppEvent>,
+) -> windows_core::Result<()> {
+    let core_webview = webview.webview();
+    let env = webview.environment();
+
+    for pattern in ["https://*", "http://*"] {
+        let filter = HSTRING::from(pattern);
+        unsafe {
+            match core_webview.cast::<ICoreWebView2_22>() {
+                Ok(webview_22) => {
+                    webview_22.AddWebResourceRequestedFilterWithRequestSourceKinds(
+                        &filter,
+                        COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+                        COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL,
+                    )?;
+                }
+                _ => {
+                    core_webview.AddWebResourceRequestedFilter(
+                        &filter,
+                        COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+                    )?;
+                }
+            }
+        }
+    }
+
+    let start = Instant::now();
+    let last_notify_ms = AtomicU64::new(0);
+    let mut token: i64 = 0;
+
+    unsafe {
+        core_webview.add_WebResourceRequested(
+            &WebResourceRequestedEventHandler::create(Box::new(move |sender, args| {
+                if !adblock.is_enabled() {
+                    return Ok(());
+                }
+                let Some(args) = args else {
+                    return Ok(());
+                };
+
+                let req = args.Request()?;
+                let mut uri_pwstr = PWSTR::null();
+                req.Uri(&mut uri_pwstr)?;
+                let url = take_pwstr(uri_pwstr);
+                let lower_url = url.to_ascii_lowercase();
+                if lower_url.starts_with("http://browser.localhost/")
+                    || lower_url.starts_with("https://browser.localhost/")
+                {
+                    return Ok(());
+                }
+
+                let headers = req.Headers().ok();
+                let mut ctx = COREWEBVIEW2_WEB_RESOURCE_CONTEXT::default();
+                args.ResourceContext(&mut ctx)?;
+                let request_type = if ctx == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT {
+                    let is_iframe = headers
+                        .as_ref()
+                        .and_then(|h| read_header(h, "Sec-Fetch-Dest"))
+                        .is_some_and(|dest| {
+                            dest.eq_ignore_ascii_case("iframe")
+                                || dest.eq_ignore_ascii_case("frame")
+                        });
+                    if !is_iframe {
+                        return Ok(());
+                    }
+                    "subdocument"
+                } else {
+                    map_resource_context(ctx)
+                };
+
+                let mut src_pwstr = PWSTR::null();
+                let page_url = if let Some(wv) = sender.as_ref()
+                    && wv.Source(&mut src_pwstr).is_ok()
+                {
+                    take_pwstr(src_pwstr)
+                } else {
+                    String::new()
+                };
+                let source_url = if !page_url.is_empty() && page_url != "about:blank" {
+                    page_url
+                } else if let Some(ref h) = headers {
+                    read_header(h, "Referer").unwrap_or_default()
+                } else {
+                    String::new()
+                };
+
+                let mut method_pwstr = PWSTR::null();
+                let method = if req.Method(&mut method_pwstr).is_ok() {
+                    take_pwstr(method_pwstr)
+                } else {
+                    "GET".to_string()
+                };
+
+                if adblock.should_block_request(&url, &source_url, request_type, &method) {
+                    let (status_code, status_reason, headers_str) =
+                        blocked_response_spec(request_type);
+                    let status = HSTRING::from(status_reason);
+                    let resp_headers = HSTRING::from(headers_str);
+                    if let Ok(resp) = env.CreateWebResourceResponse(
+                        None,
+                        status_code,
+                        &status,
+                        &resp_headers,
+                    ) {
+                        args.SetResponse(&resp)?;
+                        let count = blocked_counter.fetch_add(1, Ordering::Relaxed) + 1;
+                        let _ = adblock.record_block();
+                        let now_ms = start.elapsed().as_millis() as u64;
+                        let prev_ms = last_notify_ms.load(Ordering::Relaxed);
+                        if count == 1 || now_ms.saturating_sub(prev_ms) >= 150 {
+                            last_notify_ms.store(now_ms, Ordering::Relaxed);
+                            let _ = proxy.send_event(AppEvent::TabAdBlocked { tab_id, count });
+                        }
+                    }
+                }
+
+                Ok(())
+            })),
+            &mut token,
+        )?;
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn blocked_response_spec(request_type: &str) -> (i32, &'static str, &'static str) {
+    match request_type {
+        "script" => (
+            200,
+            "OK",
+            "Content-Type: application/javascript; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\n",
+        ),
+        "stylesheet" => (
+            200,
+            "OK",
+            "Content-Type: text/css; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\n",
+        ),
+        "image" | "ping" | "media" | "csp_report" => (
+            204,
+            "No Content",
+            "Access-Control-Allow-Origin: *\r\nCache-Control: no-store\r\n",
+        ),
+        _ => (403, "Blocked", "Content-Type: text/plain\r\n"),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn read_header(headers: &ICoreWebView2HttpRequestHeaders, name: &str) -> Option<String> {
+    let mut value = PWSTR::null();
+    // SAFETY: `headers` is a valid COM request-headers handle obtained from `req.Headers()`.
+    unsafe { headers.GetHeader(&HSTRING::from(name), &mut value) }.ok()?;
+    let text = take_pwstr(value);
+    if text.is_empty() { None } else { Some(text) }
+}
+
+#[cfg(target_os = "windows")]
+fn map_resource_context(ctx: COREWEBVIEW2_WEB_RESOURCE_CONTEXT) -> &'static str {
+    match ctx {
+        c if c == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_SCRIPT => "script",
+        c if c == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_IMAGE => "image",
+        c if c == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_STYLESHEET => "stylesheet",
+        c if c == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_XML_HTTP_REQUEST
+            || c == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_FETCH =>
+        {
+            "xmlhttprequest"
+        }
+        c if c == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_MEDIA => "media",
+        c if c == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_FONT => "font",
+        c if c == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_PING
+            || c == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_EVENT_SOURCE =>
+        {
+            "ping"
+        }
+        c if c == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_WEBSOCKET => "websocket",
+        c if c == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_CSP_VIOLATION_REPORT => "csp_report",
+        _ => "other",
     }
 }
 
@@ -207,7 +555,9 @@ fn generate_capability_token(tab_id: TabId) -> String {
     format!("{mixed:032x}")
 }
 
-fn build_content_bridge_script(token: &str) -> String {
+fn build_content_bridge_script(token: &str, adblock_enabled: bool) -> String {
+    let enabled_lit = if adblock_enabled { "true" } else { "false" };
+    let base_css_lit = escape_js_string(BASE_AGGRESSIVE_COSMETIC_CSS);
     format!(
         r#"(() => {{
   if (!window.ipc || typeof window.ipc.postMessage !== "function") return;
@@ -260,6 +610,20 @@ fn build_content_bridge_script(token: &str) -> String {
             send("newtab:name:" + name.trim().slice(0, 32));
           }}
         }},
+        configurable: false,
+        writable: false,
+      }},
+      __newtabRemoveSearchHistory: {{
+        value: (query) => {{
+          if (typeof query === "string" && query.trim()) {{
+            send("newtab:history:remove:" + query.trim());
+          }}
+        }},
+        configurable: false,
+        writable: false,
+      }},
+      __newtabClearSearchHistory: {{
+        value: () => send("newtab:history:clear"),
         configurable: false,
         writable: false,
       }},
@@ -345,17 +709,206 @@ fn build_content_bridge_script(token: &str) -> String {
     }}
   }}, true);
 
-  if (window.top === window && location.hostname !== "browser.localhost") {{
-    const reportFavicon = () => {{
-      const el = document.querySelector('link[rel~="icon"][href]');
-      if (!el) return;
-      try {{
-        const resolved = new URL(el.getAttribute("href"), location.href).href;
-        send("favicon:" + resolved);
-      }} catch (_) {{}}
+  if (location.hostname !== "browser.localhost") {{
+    let adblockActive = {enabled_lit};
+    const BASE_COSMETIC_CSS = {base_css_lit};
+
+    const syncBaseCosmetic = () => {{
+      if (!adblockActive) {{
+        for (const id of ["__ruthenium_adblock_base", "__ruthenium_adblock_cosmetic", "__ruthenium_adblock_generic"]) {{
+          const node = document.getElementById(id);
+          if (node) node.remove();
+        }}
+        return;
+      }}
+      const parent = document.head || document.documentElement;
+      if (!parent) return;
+      let el = document.getElementById("__ruthenium_adblock_base");
+      if (!el) {{
+        el = document.createElement("style");
+        el.id = "__ruthenium_adblock_base";
+        el.textContent = BASE_COSMETIC_CSS;
+        parent.appendChild(el);
+      }} else if (el.textContent !== BASE_COSMETIC_CSS) {{
+        el.textContent = BASE_COSMETIC_CSS;
+      }}
     }};
-    window.addEventListener("DOMContentLoaded", reportFavicon, {{ once: true }});
-    window.addEventListener("load", reportFavicon, {{ once: true }});
+
+    syncBaseCosmetic();
+    window.addEventListener("DOMContentLoaded", syncBaseCosmetic, {{ once: true }});
+
+    const nativeOpen = window.open;
+    if (typeof nativeOpen === "function") {{
+      window.open = function () {{
+        if (adblockActive && navigator.userActivation && !navigator.userActivation.isActive) {{
+          return null;
+        }}
+        return nativeOpen.apply(this, arguments);
+      }};
+    }}
+
+    Object.defineProperty(window, "__setAdblockState", {{
+      value: (enabled) => {{
+        adblockActive = Boolean(enabled);
+        syncBaseCosmetic();
+      }},
+      configurable: false,
+      writable: false,
+    }});
+
+    if (window.top === window) {{
+      const reportFavicon = () => {{
+        const el = document.querySelector('link[rel~="icon"][href]');
+        if (!el) return;
+        try {{
+          const resolved = new URL(el.getAttribute("href"), location.href).href;
+          send("favicon:" + resolved);
+        }} catch (_) {{}}
+      }};
+      window.addEventListener("DOMContentLoaded", reportFavicon, {{ once: true }});
+      window.addEventListener("load", reportFavicon, {{ once: true }});
+
+      const VALID_TOKEN_RE = /^[A-Za-z0-9_-]{{1,64}}$/;
+      const seenClasses = new Set();
+      const seenIds = new Set();
+      let pendingClasses = [];
+      let pendingIds = [];
+      let probeTimer = null;
+
+      const flushCosmeticProbe = () => {{
+        probeTimer = null;
+        if (!adblockActive) {{
+          pendingClasses = [];
+          pendingIds = [];
+          return;
+        }}
+        while (pendingClasses.length > 0 || pendingIds.length > 0) {{
+          const clsBatch = pendingClasses.splice(0, 120);
+          const idBatch = pendingIds.splice(0, 120);
+          if (clsBatch.length > 0 || idBatch.length > 0) {{
+            send("adblock:probe:" + clsBatch.join(",") + "|" + idBatch.join(","));
+          }}
+        }}
+      }};
+
+      const collectNodeTokens = (el) => {{
+        if (!adblockActive || !el || el.nodeType !== 1) return;
+        const rawId = el.id;
+        if (typeof rawId === "string" && VALID_TOKEN_RE.test(rawId) && !seenIds.has(rawId) && seenIds.size < 4000) {{
+          seenIds.add(rawId);
+          pendingIds.push(rawId);
+        }}
+        const cl = el.classList;
+        if (cl && cl.length > 0) {{
+          for (let i = 0; i < cl.length; i += 1) {{
+            const tok = cl[i];
+            if (VALID_TOKEN_RE.test(tok) && !seenClasses.has(tok) && seenClasses.size < 4000) {{
+              seenClasses.add(tok);
+              pendingClasses.push(tok);
+            }}
+          }}
+        }}
+      }};
+
+      const scheduleCosmeticProbe = () => {{
+        if (!adblockActive || (pendingClasses.length === 0 && pendingIds.length === 0)) return;
+        if (probeTimer !== null) return;
+        probeTimer = setTimeout(flushCosmeticProbe, 180);
+      }};
+
+      const scanInitialElements = () => {{
+        if (!adblockActive) return;
+        const all = document.querySelectorAll("[id],[class]");
+        const limit = Math.min(all.length, 1500);
+        for (let i = 0; i < limit; i += 1) {{
+          collectNodeTokens(all[i]);
+        }}
+        scheduleCosmeticProbe();
+
+        const root = document.body || document.documentElement;
+        if (root && typeof MutationObserver === "function") {{
+          const obs = new MutationObserver((mutations) => {{
+            if (!adblockActive) return;
+            let scanned = 0;
+            for (const m of mutations) {{
+              for (const node of m.addedNodes) {{
+                if (node.nodeType !== 1) continue;
+                collectNodeTokens(node);
+                scanned += 1;
+                if (scanned < 250 && node.querySelectorAll) {{
+                  const nested = node.querySelectorAll("[id],[class]");
+                  const nLimit = Math.min(nested.length, 250 - scanned);
+                  for (let j = 0; j < nLimit; j += 1) {{
+                    collectNodeTokens(nested[j]);
+                    scanned += 1;
+                  }}
+                }}
+                if (scanned >= 250) break;
+              }}
+              if (scanned >= 250) break;
+            }}
+            scheduleCosmeticProbe();
+          }});
+          obs.observe(root, {{ childList: true, subtree: true }});
+        }}
+      }};
+
+      if (document.readyState === "loading") {{
+        window.addEventListener("DOMContentLoaded", scanInitialElements, {{ once: true }});
+      }} else {{
+        scanInitialElements();
+      }}
+
+      if (/(^|\.)youtube\.com$/i.test(location.hostname)) {{
+        let savedMuted = null;
+        let handlingAd = false;
+        setInterval(() => {{
+          if (!adblockActive || document.hidden) return;
+          const skipBtn = document.querySelector(
+            ".ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-slot button",
+          );
+          if (skipBtn && typeof skipBtn.click === "function") {{
+            skipBtn.click();
+          }}
+          const player = document.getElementById("movie_player");
+          const video = document.querySelector("video.html5-main-video");
+          const isAd = Boolean(
+            player && (player.classList.contains("ad-showing") || player.classList.contains("ad-interrupting")),
+          );
+          if (video && isAd) {{
+            if (!handlingAd) {{
+              handlingAd = true;
+              savedMuted = video.muted;
+            }}
+            video.muted = true;
+            video.playbackRate = 16;
+            if (Number.isFinite(video.duration) && video.duration > 0 && video.currentTime < video.duration - 0.1) {{
+              video.currentTime = video.duration;
+            }}
+          }} else if (handlingAd && video) {{
+            handlingAd = false;
+            if (savedMuted !== null) {{
+              video.muted = savedMuted;
+              savedMuted = null;
+            }}
+            if (video.playbackRate > 2) {{
+              video.playbackRate = 1;
+            }}
+          }}
+          const popup = document.querySelector("ytd-enforcement-message-view-model");
+          if (popup) {{
+            const dialog = popup.closest("tp-yt-paper-dialog") || popup;
+            dialog.remove();
+            for (const backdrop of document.querySelectorAll("tp-yt-iron-overlay-backdrop")) {{
+              backdrop.remove();
+            }}
+            if (video && video.paused && !isAd) {{
+              video.play().catch(() => {{}});
+            }}
+          }}
+        }}, 350);
+      }}
+    }}
   }}
 }})();"#
     )

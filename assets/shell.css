@@ -11,6 +11,7 @@
   --cr-omnibox: #eef2f8;
   --cr-omnibox-hover: #e5ebf4;
   --cr-omnibox-focus: #ffffff;
+  --cr-omnibox-open: #ffffff;
   --cr-hover: rgba(15, 23, 42, 0.07);
   --cr-active: rgba(15, 23, 42, 0.12);
   --cr-fg: #0f172a;
@@ -22,6 +23,8 @@
   --cr-accent-soft: rgba(2, 132, 199, 0.12);
   --cr-accent-fg: #0369a1;
   --cr-accent-ring: rgba(14, 165, 233, 0.22);
+  --cr-shield-badge-bg: #0369a1;
+  --cr-shield-badge-fg: #ffffff;
   --cr-warning: #8a5200;
   --cr-danger-bg: #e11d48;
   --cr-danger-active: #be123c;
@@ -44,6 +47,7 @@
   --cr-omnibox: rgba(255, 255, 255, 0.06);
   --cr-omnibox-hover: rgba(255, 255, 255, 0.09);
   --cr-omnibox-focus: rgba(255, 255, 255, 0.1);
+  --cr-omnibox-open: #0f172a;
   --cr-hover: rgba(255, 255, 255, 0.08);
   --cr-active: rgba(255, 255, 255, 0.14);
   --cr-fg: #f1f5f9;
@@ -55,6 +59,8 @@
   --cr-accent-soft: rgba(56, 189, 248, 0.16);
   --cr-accent-fg: #7dd3fc;
   --cr-accent-ring: rgba(56, 189, 248, 0.22);
+  --cr-shield-badge-bg: #38bdf8;
+  --cr-shield-badge-fg: #020617;
   --cr-warning: #fbbf24;
   --cr-danger-bg: #e11d48;
   --cr-danger-active: #be123c;
@@ -74,6 +80,7 @@
   --cr-omnibox: rgba(255, 255, 255, 0.07);
   --cr-omnibox-hover: rgba(255, 255, 255, 0.1);
   --cr-omnibox-focus: rgba(255, 255, 255, 0.11);
+  --cr-omnibox-open: #11162d;
   --cr-hover: rgba(255, 255, 255, 0.09);
   --cr-active: rgba(255, 255, 255, 0.15);
   --cr-fg: #f8fafc;
@@ -85,6 +92,8 @@
   --cr-accent-soft: rgba(45, 212, 191, 0.16);
   --cr-accent-fg: #99f6e4;
   --cr-accent-ring: rgba(45, 212, 191, 0.24);
+  --cr-shield-badge-bg: #2dd4bf;
+  --cr-shield-badge-fg: #020617;
   --cr-warning: #fbbf24;
   --cr-danger-bg: #e11d48;
   --cr-danger-active: #be123c;
@@ -514,6 +523,34 @@ select:focus-visible,
   background: var(--cr-omnibox-focus);
   border-color: var(--cr-accent);
   box-shadow: 0 0 0 2px var(--cr-accent-ring);
+}
+
+.omnibox.is-open {
+  border-radius: 17px 17px 0 0;
+  background: var(--cr-omnibox-open);
+  border-color: var(--cr-accent);
+  border-bottom-color: transparent;
+  box-shadow: none;
+}
+
+.omnibox.is-focused #btn-share {
+  display: none;
+}
+
+.omnibox-clear-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  color: var(--cr-fg-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.omnibox-clear-btn:hover {
+  background: var(--cr-hover);
+  color: var(--cr-fg);
 }
 
 .security-badge {
@@ -960,6 +997,102 @@ select:focus-visible,
   color: var(--cr-fg);
   font-family: var(--font-sans);
   font-size: 12px;
+}
+
+.nav-btn--shield {
+  padding: 0 7px;
+  gap: 5px;
+}
+
+.nav-btn--shield.is-enabled {
+  color: var(--cr-accent-fg);
+}
+
+.nav-btn--shield:not(.is-enabled) {
+  color: var(--cr-fg-muted);
+}
+
+.adblock-count-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 9999px;
+  background: var(--cr-shield-badge-bg);
+  color: var(--cr-shield-badge-fg);
+  font-size: 10px;
+  line-height: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.panel-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.panel-switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px solid var(--cr-control-border);
+  background: var(--cr-panel);
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.panel-switch-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--cr-fg-muted);
+  transform: translateX(0);
+}
+
+.panel-switch[aria-checked="true"] {
+  background: var(--cr-accent);
+  border-color: var(--cr-accent);
+}
+
+.panel-switch[aria-checked="true"] .panel-switch-thumb {
+  background: var(--cr-shield-badge-fg);
+  transform: translateX(14px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .panel-switch,
+  .panel-switch-thumb {
+    transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+  }
+}
+
+.panel-setting-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--cr-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-action-btn {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--cr-control-border);
+  background: var(--cr-panel);
+  color: var(--cr-fg);
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.panel-action-btn:hover:not(:disabled) {
+  background: var(--cr-hover);
 }
 
 .panel-status {

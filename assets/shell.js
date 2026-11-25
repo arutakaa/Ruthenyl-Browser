@@ -8,7 +8,8 @@
   const RUTHENIUM_FAVICON_SVG = `<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><polygon points="32,4 56,18 56,46 32,60 8,46 8,18" fill="#0f2347"/><polygon points="32,4 56,18 32,32 8,18" fill="#1e3f78"/><polygon points="32,32 56,18 56,46 32,60" fill="#09152b"/><path d="M23 20H35C39.5 20 42.5 22.5 42.5 26.5C42.5 29.8 40.3 32.1 37 32.8L43 43H36.8L31.5 33.4H28.2V43H23V20ZM28.2 24.4V29.2H34.2C36.3 29.2 37.5 28.2 37.5 26.8C37.5 25.3 36.3 24.4 34.2 24.4H28.2Z" fill="#7dd3fc"/></svg>`;
   const SPINNER_SVG = `<path d="M7 1.5a5.5 5.5 0 1 1-4.6 2.5"></path>`;
   const CLOSE_SVG = `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="3" x2="9" y2="9"></line><line x1="9" y1="3" x2="3" y2="9"></line></svg>`;
-  const PREFS_STORAGE_KEY = "ruthenium_chrome_prefs_v3";
+  const PREFS_STORAGE_KEY = "ruthenium_chrome_prefs_v4";
+  const LEGACY_V3_PREFS_KEY = "ruthenium_chrome_prefs_v3";
   const LEGACY_V2_PREFS_KEY = "ruthenium_chrome_prefs_v2";
   const LEGACY_V1_PREFS_KEY = "ruthenium_chrome_prefs_v1";
   const SHELL_NOTES_KEY = "ruthenium_shell_notes_v1";
@@ -45,14 +46,27 @@
 
   function loadChromePrefs() {
     try {
-      const rawV3 = localStorage.getItem(PREFS_STORAGE_KEY);
+      const rawV4 = localStorage.getItem(PREFS_STORAGE_KEY);
+      if (rawV4) {
+        const parsed = JSON.parse(rawV4);
+        if (parsed && typeof parsed === "object") {
+          const searchEngine = typeof parsed.searchEngine === "string" && ENGINE_LABELS[parsed.searchEngine]
+            ? parsed.searchEngine
+            : "google";
+          const adblockEnabled = typeof parsed.adblockEnabled === "boolean"
+            ? parsed.adblockEnabled
+            : true;
+          return { searchEngine, theme: normalizeTheme(parsed.theme), adblockEnabled };
+        }
+      }
+      const rawV3 = localStorage.getItem(LEGACY_V3_PREFS_KEY);
       if (rawV3) {
         const parsed = JSON.parse(rawV3);
         if (parsed && typeof parsed === "object") {
           const searchEngine = typeof parsed.searchEngine === "string" && ENGINE_LABELS[parsed.searchEngine]
             ? parsed.searchEngine
             : "google";
-          return { searchEngine, theme: normalizeTheme(parsed.theme) };
+          return { searchEngine, theme: normalizeTheme(parsed.theme), adblockEnabled: true };
         }
       }
       const rawLegacy = localStorage.getItem(LEGACY_V2_PREFS_KEY)
@@ -63,7 +77,7 @@
           const searchEngine = typeof parsed.searchEngine === "string" && ENGINE_LABELS[parsed.searchEngine]
             ? parsed.searchEngine
             : "google";
-          return { searchEngine, theme: "arctic" };
+          return { searchEngine, theme: "arctic", adblockEnabled: true };
         }
       }
       return null;
@@ -79,6 +93,7 @@
         JSON.stringify({
           searchEngine: ENGINE_LABELS[currentState.searchEngine] ? currentState.searchEngine : "google",
           theme: VALID_THEMES.has(currentState.theme) ? currentState.theme : "arctic",
+          adblockEnabled: Boolean(currentState.adblockEnabled),
         }),
       );
     } catch (_) {
@@ -102,6 +117,11 @@
   const shellQuickNotes = document.getElementById("shell-quick-notes");
 
   const tabList = document.getElementById("tab-list");
+  const btnAdblock = document.getElementById("btn-adblock");
+  const adblockCountBadge = document.getElementById("adblock-count-badge");
+  const adblockSwitch = document.getElementById("adblock-switch");
+  const adblockStatusText = document.getElementById("adblock-status-text");
+  const btnAdblockRefresh = document.getElementById("btn-adblock-refresh");
   const btnSidebar = document.getElementById("btn-sidebar");
   const btnSettings = document.getElementById("btn-settings");
   const btnBack = document.getElementById("btn-back");
@@ -117,7 +137,7 @@
 
   const addressForm = document.getElementById("address-form");
   const addressInput = document.getElementById("address-input");
-  const addressDatalist = document.getElementById("omnibox-suggestions");
+  const omniboxClearBtn = document.getElementById("btn-omnibox-clear");
   const originDomain = document.getElementById("origin-domain");
   const originPath = document.getElementById("origin-path");
   const securityBadge = document.getElementById("security-badge");
@@ -158,6 +178,11 @@
     windowFocused: true,
     theme: "arctic",
     searchEngine: "google",
+    adblockEnabled: true,
+    adblockBlockedTab: 0,
+    adblockBlockedTotal: 0,
+    adblockStatus: "Aktif (Agresif) · Filter dasar siap",
+    adblockRefreshing: false,
   };
 
   let loadingTimer = null;
@@ -167,10 +192,16 @@
   const tabElements = new Map();
   const sidebarTabElements = new Map();
   const omniboxSuggestCache = new Map();
-  const currentOmniboxOptions = new Set();
+  const MAX_VISIBLE_SUGGESTIONS = 8;
+  const SUGGEST_DEBOUNCE_MS = 65;
+  const MAX_SUGGEST_CACHE = 40;
   let omniboxSuggestTimer = null;
   let omniboxSuggestAbort = null;
   let omniboxSuggestSeq = 0;
+  let omniboxOpen = false;
+  let activeOmniboxItems = [];
+  let selectedOmniboxIndex = -1;
+  let draftOmniboxQuery = "";
 
   function setLoadingVisual(isLoading) {
     if (isLoading) {
@@ -498,22 +529,73 @@
     renderSidebarTabs(tabs);
   }
 
-  function focusAddressBar() {
+  function focusAddressBar(openDropdown = true) {
+    const shouldOpen = typeof openDropdown === "boolean"
+      ? openDropdown
+      : !(openDropdown && openDropdown.openDropdown === false);
     addressForm.classList.add("is-focused");
+    syncOmniboxLeadingIcon();
     addressInput.value = currentState.rawUrl || "";
+    draftOmniboxQuery = addressInput.value;
+    syncOmniboxClearBtn();
     addressInput.focus();
     addressInput.select();
+    if (shouldOpen) {
+      requestOmniboxSuggestions(draftOmniboxQuery, { immediate: true });
+    } else {
+      closeOmniboxPopup({ notifyHost: true });
+    }
   }
 
   function blurAddressBar(revert) {
+    cancelPendingOmniboxSuggest();
+    closeOmniboxPopup({ notifyHost: false });
     if (revert) {
       addressInput.value = currentState.rawUrl || "";
     }
     addressForm.classList.remove("is-focused");
+    syncOmniboxLeadingIcon();
+    syncOmniboxClearBtn();
     addressInput.blur();
   }
 
   window.__focusAddressBar = focusAddressBar;
+  window.__omniboxCloseUi = (blurInput = false) => {
+    if (blurInput) {
+      blurAddressBar(true);
+    } else {
+      closeOmniboxPopup({ notifyHost: false });
+    }
+  };
+  window.__omniboxFill = (text) => {
+    if (typeof text !== "string") return;
+    addressForm.classList.add("is-focused");
+    syncOmniboxLeadingIcon();
+    addressInput.value = text;
+    draftOmniboxQuery = text;
+    syncOmniboxClearBtn();
+    addressInput.focus();
+    const end = addressInput.value.length;
+    addressInput.setSelectionRange(end, end);
+    requestOmniboxSuggestions(text, { immediate: true });
+  };
+  window.__omniboxRefresh = (focusInput = false) => {
+    if (focusInput && addressForm.classList.contains("is-focused")) {
+      addressInput.focus();
+    }
+    if (addressForm.classList.contains("is-focused")) {
+      requestOmniboxSuggestions(draftOmniboxQuery, { immediate: true });
+    }
+  };
+  window.__syncHistoryAdd = (query) => {
+    recordShellHistory(query);
+  };
+  window.__syncHistoryRemove = (query) => {
+    removeShellHistoryItem(query);
+  };
+  window.__syncHistoryClear = () => {
+    clearShellHistory();
+  };
 
   function renderPanelViews(sidebarOpen) {
     const isWorkspaceView = sidebarOpen && activeSidebarPanel === "workspace";
@@ -540,6 +622,59 @@
       : "google";
     if (document.activeElement !== engineSelect) {
       engineSelect.value = activeEngine;
+    }
+
+    renderAdblockControls();
+  }
+
+  function renderAdblockControls() {
+    const enabled = Boolean(currentState.adblockEnabled);
+    const tabCount = Number(currentState.adblockBlockedTab) || 0;
+    const totalCount = Number(currentState.adblockBlockedTotal) || 0;
+    const refreshing = Boolean(currentState.adblockRefreshing);
+    const statusSummary = typeof currentState.adblockStatus === "string" && currentState.adblockStatus
+      ? currentState.adblockStatus
+      : "Aktif (Agresif) · Filter dasar siap";
+
+    if (btnAdblock) {
+      btnAdblock.classList.toggle("is-enabled", enabled);
+      btnAdblock.setAttribute("aria-pressed", String(enabled));
+      const label = enabled
+        ? (tabCount > 0
+          ? `Pemblokir iklan agresif aktif (${tabCount} diblokir di tab ini)`
+          : "Pemblokir iklan agresif aktif")
+        : "Pemblokir iklan nonaktif";
+      btnAdblock.setAttribute("aria-label", label);
+      btnAdblock.setAttribute("title", label);
+    }
+
+    if (adblockCountBadge) {
+      const showCount = enabled && tabCount > 0;
+      setHidden(adblockCountBadge, !showCount);
+      if (showCount) {
+        adblockCountBadge.textContent = tabCount > 99 ? "99+" : String(tabCount);
+      }
+    }
+
+    if (adblockSwitch) {
+      adblockSwitch.setAttribute("aria-checked", String(enabled));
+    }
+
+    if (adblockStatusText) {
+      if (!enabled) {
+        adblockStatusText.textContent = "Nonaktif · Perlindungan iklan dijeda";
+      } else if (totalCount > 0) {
+        adblockStatusText.textContent = `${statusSummary} · ${totalCount} diblokir sesi ini`;
+      } else {
+        adblockStatusText.textContent = statusSummary;
+      }
+    }
+
+    if (btnAdblockRefresh) {
+      btnAdblockRefresh.disabled = refreshing;
+      btnAdblockRefresh.textContent = refreshing
+        ? "Memperbarui 10 daftar filter..."
+        : "Perbarui 10 daftar filter";
     }
   }
 
@@ -578,9 +713,14 @@
     const prevRawUrl = currentState.rawUrl;
     const prevEngine = currentState.searchEngine;
     const prevTheme = currentState.theme;
+    const prevAdblock = currentState.adblockEnabled;
     currentState = { ...currentState, ...next };
 
-    if (prevEngine !== currentState.searchEngine || prevTheme !== currentState.theme) {
+    if (
+      prevEngine !== currentState.searchEngine
+      || prevTheme !== currentState.theme
+      || prevAdblock !== currentState.adblockEnabled
+    ) {
       saveChromePrefs();
     }
 
@@ -616,7 +756,9 @@
 
     if (!addressForm.classList.contains("is-focused") || prevRawUrl !== currentState.rawUrl) {
       addressInput.value = currentState.rawUrl || "";
+      syncOmniboxClearBtn();
     }
+    syncOmniboxLeadingIcon();
 
     renderTabs(Array.isArray(currentState.tabs) ? currentState.tabs : []);
 
@@ -626,6 +768,30 @@
     btnMaximize.setAttribute("aria-label", maxLabel);
     btnMaximize.setAttribute("title", maxLabel);
   };
+
+  function toggleAdblockState() {
+    const nextEnabled = !Boolean(currentState.adblockEnabled);
+    currentState.adblockEnabled = nextEnabled;
+    saveChromePrefs();
+    renderAdblockControls();
+    post(nextEnabled ? "prefs:adblock:on" : "prefs:adblock:off");
+    flashSettingsStatus(nextEnabled ? "Pemblokir iklan diaktifkan" : "Pemblokir iklan dinonaktifkan");
+  }
+
+  if (btnAdblock) {
+    btnAdblock.addEventListener("click", toggleAdblockState);
+  }
+  if (adblockSwitch) {
+    adblockSwitch.addEventListener("click", toggleAdblockState);
+  }
+  if (btnAdblockRefresh) {
+    btnAdblockRefresh.addEventListener("click", () => {
+      currentState.adblockRefreshing = true;
+      renderAdblockControls();
+      post("adblock:refresh");
+      flashSettingsStatus("Mengunduh filter uAssets & EasyList...");
+    });
+  }
 
   btnSidebar.addEventListener("click", () => openSidebarPanel("workspace"));
   btnSettings.addEventListener("click", () => openSidebarPanel("settings"));
@@ -694,16 +860,20 @@
   btnClose.addEventListener("click", () => post("win:close"));
 
   addressForm.addEventListener("mousedown", (e) => {
-    if (e.target.closest("#btn-share")) return;
+    if (e.target.closest("#btn-share") || e.target.closest("#btn-omnibox-clear")) {
+      return;
+    }
     if (!addressForm.classList.contains("is-focused")) {
       e.preventDefault();
-      focusAddressBar();
+      focusAddressBar(true);
+    } else if (!omniboxOpen) {
+      requestOmniboxSuggestions(addressInput.value, { immediate: true });
     }
   });
 
   addressInput.addEventListener("focus", () => {
     if (!addressForm.classList.contains("is-focused")) {
-      focusAddressBar();
+      focusAddressBar(true);
     }
   });
 
@@ -721,49 +891,17 @@
     }
   }
 
-  function recordShellHistory(raw) {
-    const query = raw.trim();
-    if (shouldSkipOmniboxSuggest(query) || /\S+\.\S+/.test(query)) {
-      return;
-    }
-    const lower = query.toLowerCase();
-    const next = [query, ...loadShellHistory().filter((item) => item.toLowerCase() !== lower)]
-      .slice(0, MAX_SHELL_HISTORY);
+  function saveShellHistory(list) {
     try {
-      localStorage.setItem(SHELL_HISTORY_KEY, JSON.stringify(next));
+      localStorage.setItem(SHELL_HISTORY_KEY, JSON.stringify(list.slice(0, MAX_SHELL_HISTORY)));
     } catch (_) {}
   }
 
-  function clearOmniboxSuggestions() {
-    clearTimeout(omniboxSuggestTimer);
-    omniboxSuggestTimer = null;
-    if (omniboxSuggestAbort) {
-      omniboxSuggestAbort.abort();
-      omniboxSuggestAbort = null;
-    }
-    currentOmniboxOptions.clear();
-    if (addressDatalist) {
-      addressDatalist.replaceChildren();
-    }
-  }
-
-  function renderOmniboxSuggestions(items) {
-    if (!addressDatalist) return;
-    currentOmniboxOptions.clear();
-    addressDatalist.replaceChildren();
-    for (const text of items) {
-      currentOmniboxOptions.add(text);
-      const option = document.createElement("option");
-      option.value = text;
-      addressDatalist.appendChild(option);
-    }
-  }
-
-  function shouldSkipOmniboxSuggest(trimmed) {
+  function isExplicitUrlInput(raw) {
+    const trimmed = raw.trim();
     const lower = trimmed.toLowerCase();
     return (
-      !trimmed
-      || lower.startsWith("http://")
+      lower.startsWith("http://")
       || lower.startsWith("https://")
       || lower.startsWith("browser://")
       || lower === "localhost"
@@ -774,96 +912,203 @@
     );
   }
 
-  function mergeOmniboxCandidates(trimmed, remoteItems) {
-    const out = [];
-    const seen = new Set();
-    const pushUnique = (text) => {
-      const clean = text.trim();
-      if (!clean) return;
-      const lower = clean.toLowerCase();
-      if (seen.has(lower)) return;
-      seen.add(lower);
-      out.push(clean);
-    };
-
-    const lowerQuery = trimmed.toLowerCase();
-    for (const hist of loadShellHistory()) {
-      if (!lowerQuery || hist.toLowerCase().includes(lowerQuery)) {
-        pushUnique(hist);
-        if (out.length >= 3) break;
-      }
-    }
-    if (Array.isArray(remoteItems)) {
-      for (const s of remoteItems) {
-        if (out.length >= 8) break;
-        if (typeof s === "string") pushUnique(s);
-      }
-    }
-    return out.slice(0, 8);
+  function looksLikeDomainOrUrl(raw) {
+    const trimmed = raw.trim();
+    if (!trimmed || /\s/.test(trimmed)) return false;
+    if (isExplicitUrlInput(trimmed)) return true;
+    const hostPort = trimmed.split("/")[0];
+    const host = hostPort.split(":")[0];
+    return host.includes(".") && !host.startsWith(".") && !host.endsWith(".");
   }
 
-  function tryInlineComplete(typed, candidates) {
-    if (
-      document.activeElement !== addressInput
-      || typed.length < 2
-      || addressInput.value !== typed
-      || addressInput.selectionStart !== typed.length
-      || addressInput.selectionEnd !== typed.length
-    ) {
+  function recordShellHistory(raw) {
+    if (typeof raw !== "string") return;
+    const query = raw.trim();
+    if (!query || looksLikeDomainOrUrl(query)) {
       return;
     }
-    const lowerTyped = typed.toLowerCase();
-    const match = candidates.find(
-      (item) => item.toLowerCase().startsWith(lowerTyped) && item.length > typed.length,
-    );
-    if (!match) return;
-    const completed = typed + match.slice(typed.length);
-    addressInput.value = completed;
-    addressInput.setSelectionRange(typed.length, completed.length);
+    const lower = query.toLowerCase();
+    const next = [query, ...loadShellHistory().filter((item) => item.toLowerCase() !== lower)]
+      .slice(0, MAX_SHELL_HISTORY);
+    saveShellHistory(next);
   }
 
-  function isForwardTypingInput(inputType) {
-    return inputType === "insertText" || inputType === "insertCompositionText";
+  function removeShellHistoryItem(target) {
+    if (typeof target !== "string") return;
+    const lower = target.trim().toLowerCase();
+    const next = loadShellHistory().filter((item) => item.toLowerCase() !== lower);
+    saveShellHistory(next);
   }
 
-  function scheduleOmniboxSuggest(rawValue, inputType) {
+  function clearShellHistory() {
+    saveShellHistory([]);
+  }
+
+  function syncOmniboxClearBtn() {
+    const visible = addressForm.classList.contains("is-focused") && addressInput.value.length > 0;
+    setHidden(omniboxClearBtn, !visible);
+  }
+
+  function syncOmniboxLeadingIcon() {
+    if (addressForm.classList.contains("is-focused")) {
+      setHidden(iconSearch, false);
+      setHidden(iconLock, true);
+      setHidden(iconWarn, true);
+      setHidden(securityChip, true);
+      securityBadge.classList.add("is-internal");
+      securityBadge.classList.remove("is-insecure");
+    } else {
+      renderSecurity(currentState.security);
+    }
+  }
+
+  function cancelPendingOmniboxSuggest() {
     clearTimeout(omniboxSuggestTimer);
+    omniboxSuggestTimer = null;
     if (omniboxSuggestAbort) {
       omniboxSuggestAbort.abort();
       omniboxSuggestAbort = null;
     }
+  }
 
-    const trimmed = rawValue.trim();
-    if (shouldSkipOmniboxSuggest(trimmed)) {
-      currentOmniboxOptions.clear();
-      if (addressDatalist) {
-        addressDatalist.replaceChildren();
-      }
+  function computePopupHeight(rect, items, showHistoryFooter) {
+    const contentHeight = 7 + items.length * 36 + (showHistoryFooter ? 30 : 0) + 9;
+    const maxAvailable = Math.max(80, Math.min(360, Math.floor(window.innerHeight - rect.bottom - 28)));
+    return Math.min(contentHeight, maxAvailable);
+  }
+
+  function closeOmniboxPopup({ notifyHost = true } = {}) {
+    const wasOpen = omniboxOpen;
+    omniboxOpen = false;
+    activeOmniboxItems = [];
+    selectedOmniboxIndex = -1;
+    addressForm.classList.remove("is-open");
+    addressInput.setAttribute("aria-expanded", "false");
+    if (notifyHost && wasOpen) {
+      post("omnibox:close");
+    }
+  }
+
+  function openOrUpdateOmniboxPopup(query, items) {
+    if (!items || items.length === 0 || !addressForm.classList.contains("is-focused")) {
+      closeOmniboxPopup({ notifyHost: true });
       return;
     }
 
-    const allowInline = isForwardTypingInput(inputType)
-      && rawValue === trimmed
-      && addressInput.selectionStart === rawValue.length
-      && addressInput.selectionEnd === rawValue.length;
+    activeOmniboxItems = items;
+    selectedOmniboxIndex = -1;
+    omniboxOpen = true;
+    addressForm.classList.add("is-open");
+    addressInput.setAttribute("aria-expanded", "true");
 
-    const cacheKey = trimmed.toLowerCase();
-    const cachedRemote = omniboxSuggestCache.get(cacheKey);
-    const localCandidates = mergeOmniboxCandidates(trimmed, cachedRemote || []);
-    if (localCandidates.length > 0) {
-      renderOmniboxSuggestions(localCandidates);
-      if (allowInline) {
-        tryInlineComplete(rawValue, localCandidates);
+    const trimmedQuery = query.trim();
+    const showHistoryFooter = trimmedQuery.length === 0 && items.some((entry) => entry.kind === "history");
+    const rect = addressForm.getBoundingClientRect();
+    const popupHeight = computePopupHeight(rect, items, showHistoryFooter);
+
+    const payload = JSON.stringify({
+      theme: VALID_THEMES.has(currentState.theme) ? currentState.theme : "arctic",
+      query,
+      items,
+      showHistoryFooter,
+      selectedIndex: -1,
+    });
+    post(`omnibox:open:${rect.left.toFixed(1)},${rect.bottom.toFixed(1)},${rect.width.toFixed(1)},${popupHeight}|${payload}`);
+  }
+
+  function cacheOmniboxSuggestions(cacheKey, items) {
+    if (omniboxSuggestCache.size >= MAX_SUGGEST_CACHE) {
+      const oldest = omniboxSuggestCache.keys().next().value;
+      if (oldest !== undefined) {
+        omniboxSuggestCache.delete(oldest);
+      }
+    }
+    omniboxSuggestCache.set(cacheKey, items);
+  }
+
+  function mergeOmniboxSuggestions(trimmed, remoteList) {
+    const items = [];
+    const seen = new Set();
+    const pushItem = (text, kind) => {
+      const clean = text.trim();
+      if (!clean) return;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      items.push({ text: clean, kind });
+    };
+
+    if (looksLikeDomainOrUrl(trimmed)) {
+      pushItem(trimmed, "url");
+    }
+
+    const lower = trimmed.toLowerCase();
+    const history = loadShellHistory();
+    let historyAdded = 0;
+    for (const h of history) {
+      if (!lower || h.toLowerCase().includes(lower)) {
+        pushItem(h, "history");
+        historyAdded += 1;
+        if (lower && historyAdded >= 3) break;
+        if (!lower && items.length >= MAX_VISIBLE_SUGGESTIONS) break;
       }
     }
 
-    if (cachedRemote) {
+    if (Array.isArray(remoteList)) {
+      for (const s of remoteList) {
+        if (items.length >= MAX_VISIBLE_SUGGESTIONS) break;
+        if (typeof s === "string") {
+          pushItem(s, "suggest");
+        }
+      }
+    }
+
+    return items.slice(0, MAX_VISIBLE_SUGGESTIONS);
+  }
+
+  function findBestCachedRemote(lowerQuery) {
+    const exact = omniboxSuggestCache.get(lowerQuery);
+    if (exact) return exact;
+    for (let len = lowerQuery.length - 1; len >= 1; len -= 1) {
+      const prefix = lowerQuery.slice(0, len);
+      const cachedPrefix = omniboxSuggestCache.get(prefix);
+      if (cachedPrefix) {
+        return cachedPrefix.filter((item) => item.toLowerCase().includes(lowerQuery));
+      }
+    }
+    return [];
+  }
+
+  function requestOmniboxSuggestions(rawInput, { immediate = false } = {}) {
+    cancelPendingOmniboxSuggest();
+    const trimmed = rawInput.trim();
+
+    if (!trimmed) {
+      const recentItems = mergeOmniboxSuggestions("", []);
+      openOrUpdateOmniboxPopup("", recentItems);
+      return;
+    }
+
+    if (isExplicitUrlInput(trimmed)) {
+      openOrUpdateOmniboxPopup(trimmed, [{ text: trimmed, kind: "url" }]);
+      return;
+    }
+
+    const cacheKey = trimmed.toLowerCase();
+    const exactCached = omniboxSuggestCache.get(cacheKey);
+    const localItems = mergeOmniboxSuggestions(trimmed, findBestCachedRemote(cacheKey));
+    if (localItems.length > 0) {
+      openOrUpdateOmniboxPopup(trimmed, localItems);
+    } else {
+      closeOmniboxPopup({ notifyHost: true });
+    }
+
+    if (exactCached) {
       return;
     }
 
     const seq = ++omniboxSuggestSeq;
-    const rawSnapshot = rawValue;
-    omniboxSuggestTimer = setTimeout(() => {
+    const runFetch = () => {
       const controller = new AbortController();
       omniboxSuggestAbort = controller;
       fetch(`/suggest?q=${encodeURIComponent(trimmed)}`, {
@@ -872,85 +1117,131 @@
       })
         .then((res) => (res.ok ? res.json() : []))
         .then((list) => {
-          if (seq !== omniboxSuggestSeq) {
+          if (seq !== omniboxSuggestSeq || draftOmniboxQuery.trim() !== trimmed) {
             return;
           }
           if (!Array.isArray(list)) return;
-          const remoteItems = list
+          const cleanRemote = list
             .filter((entry) => typeof entry === "string" && entry.trim())
-            .slice(0, 8);
-          if (omniboxSuggestCache.size >= 40) {
-            const oldest = omniboxSuggestCache.keys().next().value;
-            if (oldest !== undefined) {
-              omniboxSuggestCache.delete(oldest);
-            }
-          }
-          omniboxSuggestCache.set(cacheKey, remoteItems);
-          if (addressInput.value !== rawSnapshot) {
-            return;
-          }
-          const merged = mergeOmniboxCandidates(trimmed, remoteItems);
-          renderOmniboxSuggestions(merged);
-          if (allowInline) {
-            tryInlineComplete(rawSnapshot, merged);
+            .slice(0, MAX_VISIBLE_SUGGESTIONS);
+          cacheOmniboxSuggestions(cacheKey, cleanRemote);
+          if (selectedOmniboxIndex === -1 && addressForm.classList.contains("is-focused")) {
+            openOrUpdateOmniboxPopup(trimmed, mergeOmniboxSuggestions(trimmed, cleanRemote));
           }
         })
         .catch(() => {
           // Ignore aborts or offline errors cleanly.
         });
-    }, 80);
+    };
+
+    if (immediate) {
+      runFetch();
+    } else {
+      omniboxSuggestTimer = setTimeout(runFetch, SUGGEST_DEBOUNCE_MS);
+    }
   }
 
-  addressInput.addEventListener("input", (e) => {
-    const val = addressInput.value;
-    const trimmed = val.trim();
-    const inputType = e && typeof e.inputType === "string" ? e.inputType : "";
-    if (
-      (inputType === "insertReplacementText" || !inputType)
-      && trimmed
-      && currentOmniboxOptions.has(trimmed)
-    ) {
-      recordShellHistory(trimmed);
-      clearOmniboxSuggestions();
-      blurAddressBar(false);
-      post(`nav:go:${trimmed}`);
-      return;
-    }
-    scheduleOmniboxSuggest(val, inputType);
+  if (omniboxClearBtn) {
+    omniboxClearBtn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    omniboxClearBtn.addEventListener("click", () => {
+      cancelPendingOmniboxSuggest();
+      addressInput.value = "";
+      draftOmniboxQuery = "";
+      syncOmniboxClearBtn();
+      addressInput.focus();
+      requestOmniboxSuggestions("", { immediate: true });
+    });
+  }
+
+  addressInput.addEventListener("input", () => {
+    draftOmniboxQuery = addressInput.value;
+    syncOmniboxClearBtn();
+    requestOmniboxSuggestions(draftOmniboxQuery);
   });
 
   addressInput.addEventListener("blur", () => {
-    clearOmniboxSuggestions();
-    blurAddressBar(false);
+    cancelPendingOmniboxSuggest();
+    post("omnibox:blur");
   });
 
   addressForm.addEventListener("submit", (e) => {
     e.preventDefault();
+    cancelPendingOmniboxSuggest();
     const query = addressInput.value.trim();
     recordShellHistory(query);
-    clearOmniboxSuggestions();
     blurAddressBar(false);
+    post("omnibox:close");
     post(`nav:go:${query}`);
   });
 
   addressInput.addEventListener("keydown", (e) => {
-    if (
-      (e.key === "Tab" || e.key === "ArrowRight")
-      && addressInput.selectionStart !== addressInput.selectionEnd
-      && addressInput.selectionEnd === addressInput.value.length
-    ) {
-      const end = addressInput.value.length;
-      addressInput.setSelectionRange(end, end);
-      if (e.key === "Tab") {
-        e.preventDefault();
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (!omniboxOpen) {
+        requestOmniboxSuggestions(addressInput.value, { immediate: true });
+        return;
+      }
+      if (activeOmniboxItems.length > 0) {
+        selectedOmniboxIndex = selectedOmniboxIndex + 1 >= activeOmniboxItems.length
+          ? -1
+          : selectedOmniboxIndex + 1;
+        addressInput.value = selectedOmniboxIndex === -1
+          ? draftOmniboxQuery
+          : activeOmniboxItems[selectedOmniboxIndex].text;
+        syncOmniboxClearBtn();
+        post(`omnibox:select:${selectedOmniboxIndex}`);
       }
       return;
     }
+
+    if (e.key === "ArrowUp" && omniboxOpen && activeOmniboxItems.length > 0) {
+      e.preventDefault();
+      selectedOmniboxIndex = selectedOmniboxIndex <= -1
+        ? activeOmniboxItems.length - 1
+        : selectedOmniboxIndex - 1;
+      addressInput.value = selectedOmniboxIndex === -1
+        ? draftOmniboxQuery
+        : activeOmniboxItems[selectedOmniboxIndex].text;
+      syncOmniboxClearBtn();
+      post(`omnibox:select:${selectedOmniboxIndex}`);
+      return;
+    }
+
+    if (
+      (e.key === "Tab" || e.key === "ArrowRight")
+      && selectedOmniboxIndex === -1
+      && omniboxOpen
+      && activeOmniboxItems.length > 0
+      && addressInput.selectionStart === addressInput.value.length
+      && addressInput.selectionEnd === addressInput.value.length
+    ) {
+      const top = activeOmniboxItems[0].text;
+      const typed = addressInput.value.trim();
+      if (typed && top.toLowerCase().startsWith(typed.toLowerCase()) && top.length > typed.length) {
+        e.preventDefault();
+        addressInput.value = top;
+        draftOmniboxQuery = top;
+        syncOmniboxClearBtn();
+        requestOmniboxSuggestions(top, { immediate: true });
+        return;
+      }
+    }
+
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      clearOmniboxSuggestions();
+      cancelPendingOmniboxSuggest();
+      if (omniboxOpen) {
+        addressInput.value = draftOmniboxQuery;
+        syncOmniboxClearBtn();
+        closeOmniboxPopup({ notifyHost: true });
+        return;
+      }
       blurAddressBar(true);
+      post("omnibox:close");
       post("content:focus");
     }
   });
@@ -1068,7 +1359,7 @@
       }
       if (!e.shiftKey && lower === "l") {
         e.preventDefault();
-        focusAddressBar();
+        focusAddressBar(true);
         return;
       }
       if (!e.shiftKey && lower === "b") {
@@ -1093,7 +1384,7 @@
     if (e.altKey && !e.ctrlKey && !e.shiftKey) {
       if (lower === "d") {
         e.preventDefault();
-        focusAddressBar();
+        focusAddressBar(true);
         return;
       }
       if (key === "ArrowLeft") {
@@ -1125,9 +1416,15 @@
     currentState.searchEngine = savedPrefs.searchEngine;
     post(`prefs:engine:${savedPrefs.searchEngine}`);
   }
+  if (savedPrefs && typeof savedPrefs.adblockEnabled === "boolean") {
+    currentState.adblockEnabled = savedPrefs.adblockEnabled;
+  }
+  post(currentState.adblockEnabled ? "prefs:adblock:on" : "prefs:adblock:off");
   currentState.theme = initialTheme;
   document.documentElement.dataset.theme = initialTheme;
+  saveChromePrefs();
   post(`theme:${initialTheme}`);
+  renderAdblockControls();
 
   post("shell:ready");
 })();

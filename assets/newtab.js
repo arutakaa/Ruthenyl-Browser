@@ -350,6 +350,9 @@
         delBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           removeSearchHistoryItem(item.text);
+          if (typeof window.__newtabRemoveSearchHistory === "function") {
+            window.__newtabRemoveSearchHistory(item.text);
+          }
           searchInput.focus();
           requestSuggestions(draftQuery, { immediate: true });
         });
@@ -816,6 +819,9 @@
 
   clearHistoryBtn.addEventListener("click", () => {
     clearSearchHistory();
+    if (typeof window.__newtabClearSearchHistory === "function") {
+      window.__newtabClearSearchHistory();
+    }
     closeSuggestions();
     searchInput.focus();
   });
@@ -994,6 +1000,31 @@
       nextTheme = themeOrDark ? getSavedDarkPreset() : "arctic";
     }
     applyTheme(nextTheme, { persist: true, notifyHost: false });
+  };
+
+  window.__syncHistoryAdd = (query) => {
+    if (typeof query === "string") {
+      recordSearchHistory(query);
+      if (document.activeElement === searchInput && !searchDropdown.hidden) {
+        requestSuggestions(draftQuery, { immediate: true });
+      }
+    }
+  };
+
+  window.__syncHistoryRemove = (query) => {
+    if (typeof query === "string") {
+      removeSearchHistoryItem(query);
+      if (document.activeElement === searchInput && !searchDropdown.hidden) {
+        requestSuggestions(draftQuery, { immediate: true });
+      }
+    }
+  };
+
+  window.__syncHistoryClear = () => {
+    clearSearchHistory();
+    if (!searchDropdown.hidden) {
+      closeSuggestions();
+    }
   };
 
   applyTheme(resolveInitialTheme(), { persist: false, notifyHost: false });
