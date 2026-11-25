@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tao::event_loop::EventLoopProxy;
 use tao::window::Window;
-use wry::http::header::CONTENT_TYPE;
+use wry::http::header::{CACHE_CONTROL, CONTENT_TYPE};
 use wry::http::{Request, Response};
 use wry::{PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder};
 #[cfg(target_os = "windows")]
@@ -15,11 +15,21 @@ use crate::error::BrowserError;
 use crate::ipc::{AppEvent, TabId, escape_js_string, parse_authenticated_content_ipc};
 
 const EMPTY_VIEWPORT_HTML: &[u8] = include_bytes!("../assets/empty_viewport.html");
-const RUTHENYL_BLOG_HTML: &[u8] = include_bytes!("../assets/ruthenyl_blog.html");
+const RUTHENIUM_BLOG_HTML: &[u8] = include_bytes!("../assets/ruthenium_blog.html");
 const NEWTAB_CSS: &[u8] = include_bytes!("../assets/newtab.css");
 const NEWTAB_JS: &[u8] = include_bytes!("../assets/newtab.js");
-const DARK_VIEWPORT_BG: (u8, u8, u8, u8) = (18, 22, 28, 255);
-const LIGHT_VIEWPORT_BG: (u8, u8, u8, u8) = (244, 247, 251, 255);
+const RUTHENIUM_LOGO_SVG: &[u8] = include_bytes!("../assets/ruthenium-logo.svg");
+const DARK_VIEWPORT_BG: (u8, u8, u8, u8) = (8, 13, 26, 255);
+const LIGHT_VIEWPORT_BG: (u8, u8, u8, u8) = (248, 250, 252, 255);
+
+pub struct ContentAttachOptions<'a> {
+    pub tab_id: TabId,
+    pub context: &'a mut WebContext,
+    pub bounds: Rect,
+    pub visible: bool,
+    pub is_dark: bool,
+    pub proxy: EventLoopProxy<AppEvent>,
+}
 
 pub struct ContentEngine {
     webview: WebView,
@@ -28,13 +38,16 @@ pub struct ContentEngine {
 impl ContentEngine {
     pub fn attach(
         window: &Window,
-        tab_id: TabId,
-        context: &mut WebContext,
-        bounds: Rect,
-        visible: bool,
-        is_dark: bool,
-        proxy: EventLoopProxy<AppEvent>,
+        opts: ContentAttachOptions<'_>,
     ) -> Result<Self, BrowserError> {
+        let ContentAttachOptions {
+            tab_id,
+            context,
+            bounds,
+            visible,
+            is_dark,
+            proxy,
+        } = opts;
         let cap_token = generate_capability_token(tab_id);
         let init_script = build_content_bridge_script(&cap_token);
         let bg = if is_dark {
@@ -54,7 +67,13 @@ impl ContentEngine {
             .with_focused(false)
             .with_background_color(bg)
             .with_initialization_script(&init_script)
-            .with_custom_protocol("browser".into(), |_id, req| serve_newtab_asset(&req))
+            .with_asynchronous_custom_protocol("browser".into(), |_id, req, responder| {
+                if req.uri().path() == "/suggest" {
+                    crate::suggest::handle_suggest_request(&req, responder);
+                } else {
+                    responder.respond(serve_newtab_asset(&req));
+                }
+            })
             .with_url("browser://localhost/newtab")
             .with_navigation_handler(move |url| {
                 let _ = nav_proxy.send_event(AppEvent::TabNavigated { tab_id, url });
@@ -127,11 +146,19 @@ impl ContentEngine {
         let _ = self.webview.focus();
     }
 
-    pub fn sync_profile_prefs(&self, name: &str, engine: &str) {
+    pub fn sync_internal_prefs(&self, engine: &str, theme: &str) {
         let script = format!(
-            "if (window.__syncProfileName) window.__syncProfileName({}); if (window.__syncSearchEngine) window.__syncSearchEngine({});",
-            escape_js_string(name),
+            "if (window.__syncSearchEngine) window.__syncSearchEngine({}); if (window.__syncTheme) window.__syncTheme({});",
             escape_js_string(engine),
+            escape_js_string(theme),
+        );
+        let _ = self.webview.evaluate_script(&script);
+    }
+
+    pub fn sync_theme(&self, theme: &str) {
+        let script = format!(
+            "if (window.__syncTheme) window.__syncTheme({});",
+            escape_js_string(theme),
         );
         let _ = self.webview.evaluate_script(&script);
     }
@@ -157,12 +184,14 @@ fn serve_newtab_asset(req: &Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
     let (mime, body): (&str, &'static [u8]) = match req.uri().path() {
         "/newtab.css" => ("text/css; charset=utf-8", NEWTAB_CSS),
         "/newtab.js" => ("text/javascript; charset=utf-8", NEWTAB_JS),
-        "/blog" => ("text/html; charset=utf-8", RUTHENYL_BLOG_HTML),
+        "/blog" => ("text/html; charset=utf-8", RUTHENIUM_BLOG_HTML),
+        "/ruthenium-logo.svg" => ("image/svg+xml", RUTHENIUM_LOGO_SVG),
         _ => ("text/html; charset=utf-8", EMPTY_VIEWPORT_HTML),
     };
 
     Response::builder()
         .header(CONTENT_TYPE, mime)
+        .header(CACHE_CONTROL, "no-store, no-cache, must-revalidate")
         .status(200)
         .body(Cow::Borrowed(body))
         .expect("static newtab asset response must be valid")
@@ -209,8 +238,17 @@ fn build_content_bridge_script(token: &str) -> String {
       }},
       __newtabSetTheme: {{
         value: (mode) => {{
-          if (mode === "dark" || mode === "light") {{
+          if (mode === "midnight" || mode === "arctic" || mode === "aurora" || mode === "dark" || mode === "light") {{
             send("newtab:theme:" + mode);
+          }}
+        }},
+        configurable: false,
+        writable: false,
+      }},
+      __newtabSetSearchEngine: {{
+        value: (engine) => {{
+          if (engine === "google" || engine === "duckduckgo" || engine === "bing") {{
+            send("newtab:engine:" + engine);
           }}
         }},
         configurable: false,

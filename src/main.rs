@@ -4,9 +4,11 @@
 mod app;
 mod engine;
 mod error;
+mod icon;
 mod ipc;
 mod layout;
 mod shell;
+mod suggest;
 mod tabs;
 mod window;
 

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use tao::event_loop::EventLoopProxy;
 use tao::window::Window;
-use wry::http::header::CONTENT_TYPE;
+use wry::http::header::{CACHE_CONTROL, CONTENT_TYPE};
 use wry::http::{Request, Response};
 use wry::{Rect, WebContext, WebView, WebViewBuilder};
 #[cfg(target_os = "windows")]
@@ -17,8 +17,9 @@ use crate::ipc::{AppEvent, OriginDisplay, escape_js_string, parse_shell_ipc};
 const SHELL_HTML: &[u8] = include_bytes!("../assets/shell.html");
 const SHELL_CSS: &[u8] = include_bytes!("../assets/shell.css");
 const SHELL_JS: &[u8] = include_bytes!("../assets/shell.js");
+const RUTHENIUM_LOGO_SVG: &[u8] = include_bytes!("../assets/ruthenium-logo.svg");
 
-const RUTHENYL_CHROME_BG: (u8, u8, u8, u8) = (14, 23, 38, 255);
+const RUTHENIUM_CHROME_BG: (u8, u8, u8, u8) = (232, 238, 246, 255);
 
 pub struct ShellTabSummary {
     pub id: u64,
@@ -40,7 +41,7 @@ pub struct ShellSyncPayload<'a> {
     pub is_compact: bool,
     pub is_maximized: bool,
     pub window_focused: bool,
-    pub is_dark: bool,
+    pub theme: &'a str,
     pub profile_name: &'a str,
     pub search_engine: &'a str,
 }
@@ -60,8 +61,14 @@ impl ShellView {
         let mut context = WebContext::new(Some(shell_data_dir()));
         let builder = WebViewBuilder::new_with_web_context(&mut context)
             .with_bounds(bounds)
-            .with_background_color(RUTHENYL_CHROME_BG)
-            .with_custom_protocol("browser".into(), |_id, req| serve_shell_asset(&req))
+            .with_background_color(RUTHENIUM_CHROME_BG)
+            .with_asynchronous_custom_protocol("browser".into(), |_id, req, responder| {
+                if req.uri().path() == "/suggest" {
+                    crate::suggest::handle_suggest_request(&req, responder);
+                } else {
+                    responder.respond(serve_shell_asset(&req));
+                }
+            })
             .with_url("browser://localhost/shell")
             .with_ipc_handler(move |req: Request<String>| {
                 if let Some(event) = parse_shell_ipc(req.body()) {
@@ -117,7 +124,7 @@ impl ShellView {
         tabs_json.push(']');
 
         let script = format!(
-            "if (window.__shellSync) window.__shellSync({{tabs:{},rawUrl:{},origin:{},path:{},title:{},security:{},canGoBack:{},canGoForward:{},isLoading:{},sidebarWidth:{:.1},isCompact:{},isMaximized:{},windowFocused:{},isDark:{},profileName:{},searchEngine:{}}});",
+            "if (window.__shellSync) window.__shellSync({{tabs:{},rawUrl:{},origin:{},path:{},title:{},security:{},canGoBack:{},canGoForward:{},isLoading:{},sidebarWidth:{:.1},isCompact:{},isMaximized:{},windowFocused:{},theme:{},profileName:{},searchEngine:{}}});",
             tabs_json,
             escape_js_string(&state.origin_display.raw_url),
             escape_js_string(&state.origin_display.origin),
@@ -131,7 +138,7 @@ impl ShellView {
             state.is_compact,
             state.is_maximized,
             state.window_focused,
-            state.is_dark,
+            escape_js_string(state.theme),
             escape_js_string(state.profile_name),
             escape_js_string(state.search_engine),
         );
@@ -143,11 +150,13 @@ fn serve_shell_asset(req: &Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
     let (mime, body): (&str, &'static [u8]) = match req.uri().path() {
         "/shell.css" => ("text/css; charset=utf-8", SHELL_CSS),
         "/shell.js" => ("text/javascript; charset=utf-8", SHELL_JS),
+        "/ruthenium-logo.svg" => ("image/svg+xml", RUTHENIUM_LOGO_SVG),
         _ => ("text/html; charset=utf-8", SHELL_HTML),
     };
 
     Response::builder()
         .header(CONTENT_TYPE, mime)
+        .header(CACHE_CONTROL, "no-store, no-cache, must-revalidate")
         .status(200)
         .body(Cow::Borrowed(body))
         .expect("static shell asset response must be valid")

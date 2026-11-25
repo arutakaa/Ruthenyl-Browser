@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="id" data-theme="arctic">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ruthenium Notes</title>
+  <link rel="icon" type="image/svg+xml" href="/ruthenium-logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root,
+    [data-theme="arctic"],
+    [data-theme="light"] {
+      color-scheme: light;
+      --bg: #edf3fa;
+      --card: #ffffff;
+      --border: rgba(15, 23, 42, 0.12);
+      --fg: #0f172a;
+      --muted: #475569;
+      --accent: #0369a1;
+      --accent-fg: #ffffff;
+      --accent-hover: #075985;
+      --font-sans: "Plus Jakarta Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    }
+
+    [data-theme="midnight"] {
+      color-scheme: dark;
+      --bg: #080d1a;
+      --card: #0d1426;
+      --border: rgba(148, 163, 184, 0.18);
+      --fg: #f1f5f9;
+      --muted: #cbd5e1;
+      --accent: #38bdf8;
+      --accent-fg: #082f49;
+      --accent-hover: #7dd3fc;
+    }
+
+    [data-theme="aurora"] {
+      color-scheme: dark;
+      --bg: #070913;
+      --card: #0c1021;
+      --border: rgba(167, 139, 250, 0.22);
+      --fg: #f8fafc;
+      --muted: #c7d2fe;
+      --accent: #2dd4bf;
+      --accent-fg: #042f2e;
+      --accent-hover: #5eead4;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 22px;
+      background: var(--bg);
+      color: var(--fg);
+    }
+
+    main {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 40px 24px 56px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+    }
+
+    .brand-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .brand-badge {
+      width: 32px;
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .brand-badge svg {
+      width: 32px;
+      height: 32px;
+      display: block;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 28px;
+      font-weight: 600;
+      color: var(--fg);
+    }
+
+    p {
+      margin: 12px 0;
+      color: var(--muted);
+    }
+
+    ul {
+      margin: 14px 0 22px;
+      padding-left: 20px;
+      color: var(--fg);
+    }
+
+    li + li {
+      margin-top: 6px;
+    }
+
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 0 14px;
+      border-radius: 6px;
+      background: var(--accent);
+      color: var(--accent-fg);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .back-link:hover {
+      background: var(--accent-hover);
+    }
+
+    .back-link:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+  </style>
+  <script>
+    (() => {
+      const KEY = "ruthenium_ntp_theme_v2";
+      const VALID = new Set(["arctic", "midnight", "aurora"]);
+      const normalize = (val) => {
+        if (VALID.has(val)) return val;
+        if (val === "dark" || val === true) return "midnight";
+        return "arctic";
+      };
+      try {
+        const saved = localStorage.getItem(KEY);
+        if (saved) {
+          document.documentElement.dataset.theme = normalize(saved);
+        }
+      } catch (_) {}
+      window.__syncTheme = (themeOrDark) => {
+        const mode = normalize(themeOrDark);
+        document.documentElement.dataset.theme = mode;
+        try { localStorage.setItem(KEY, mode); } catch (_) {}
+      };
+    })();
+  </script>
+</head>
+<body>
+  <main>
+    <article class="card">
+      <div class="brand-row">
+        <span class="brand-badge" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M32 4 L8 18 L8 46 L32 60 Z" fill="#0E1726"/>
+            <path d="M32 4 L56 18 L56 46 L32 60 Z" fill="#172744"/>
+            <path d="M32 4 L56 18 L32 32 Z" fill="#1F365E"/>
+            <path d="M32 4 L56 18 L56 46 L32 60 L8 46 L8 18 Z" stroke="#35548A" stroke-width="1.4" stroke-linejoin="round"/>
+            <path d="M19 18.8 L25.5 15 L25.5 49 L19 45.2 Z" fill="#F4F7FB"/>
+            <path d="M25.5 15 L44.5 26 L44.5 28.8 L36.8 28.8 L25.5 22.3 Z" fill="#DCEBFC"/>
+            <path d="M44.5 28.8 L44.5 31.6 L25.5 42.6 L25.5 35.3 L36.8 28.8 Z" fill="#60A5FA"/>
+            <path d="M27.5 41.4 L34.8 37.2 L45 43.1 L45 45.2 L38.8 48.8 Z" fill="#93C5FD"/>
+          </svg>
+        </span>
+        <h1>Ruthenium Notes</h1>
+      </div>
+      <p>Browser desktop Windows berbasis Rust, Tao, dan WebView2.</p>
+      <ul>
+        <li>Chrome dua baris bergaya Chromium: tab strip di atas, bilah navigasi dan omnibox penuh di bawahnya.</li>
+        <li>Setiap tab menjalankan WebView2 terpisah dengan riwayat Kembali, Maju, dan tema Terang maupun Gelap.</li>
+        <li>Aset Tab Baru dan halaman internal berjalan offline tanpa ketergantungan eksternal.</li>
+      </ul>
+      <a class="back-link" href="http://browser.localhost/newtab">Kembali ke Tab Baru</a>
+    </article>
+  </main>
+</body>
+</html>

@@ -29,7 +29,7 @@ pub enum AppEvent {
     SetSidebarOpen(bool),
     SetSidebarWidth(f64),
     ResetSidebarWidth,
-    SetTheme(bool),
+    SetTheme(BrowserTheme),
     SetSearchEngine(SearchEngine),
     SetProfileName(String),
     Minimize,
@@ -107,6 +107,10 @@ pub fn parse_shell_ipc(message: &str) -> Option<AppEvent> {
                 let width = raw_width.parse::<f64>().ok()?;
                 return Some(AppEvent::SetSidebarWidth(width));
             }
+            if let Some(raw_theme) = message.strip_prefix("theme:") {
+                let theme = BrowserTheme::from_wire(raw_theme)?;
+                return Some(AppEvent::SetTheme(theme));
+            }
             if let Some(raw_engine) = message.strip_prefix("prefs:engine:") {
                 let engine = SearchEngine::from_wire(raw_engine)?;
                 return Some(AppEvent::SetSearchEngine(engine));
@@ -151,9 +155,11 @@ pub fn parse_authenticated_content_ipc(
         "key:back" => Some(AppEvent::Back),
         "key:forward" => Some(AppEvent::Forward),
         "key:stop" => Some(AppEvent::Stop),
-        "newtab:theme:dark" => Some(AppEvent::SetTheme(true)),
-        "newtab:theme:light" => Some(AppEvent::SetTheme(false)),
         _ => {
+            if let Some(raw_theme) = payload.strip_prefix("newtab:theme:") {
+                let theme = BrowserTheme::from_wire(raw_theme)?;
+                return Some(AppEvent::SetTheme(theme));
+            }
             if let Some(raw_slot) = payload.strip_prefix("key:slot:") {
                 let slot = raw_slot.parse::<usize>().ok()?;
                 if (1..=9).contains(&slot) {
@@ -166,6 +172,10 @@ pub fn parse_authenticated_content_ipc(
             }
             if let Some(raw_name) = payload.strip_prefix("newtab:name:") {
                 return Some(AppEvent::SetProfileName(sanitize_profile_name(raw_name)));
+            }
+            if let Some(raw_engine) = payload.strip_prefix("newtab:engine:") {
+                let engine = SearchEngine::from_wire(raw_engine)?;
+                return Some(AppEvent::SetSearchEngine(engine));
             }
             if let Some(icon_url) = payload.strip_prefix("favicon:") {
                 let trimmed = icon_url.trim();
@@ -265,6 +275,37 @@ pub fn is_internal_blog(url: &str) -> bool {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BrowserTheme {
+    Midnight,
+    #[default]
+    Arctic,
+    Aurora,
+}
+
+impl BrowserTheme {
+    pub fn from_wire(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "midnight" | "dark" => Some(Self::Midnight),
+            "arctic" | "light" => Some(Self::Arctic),
+            "aurora" => Some(Self::Aurora),
+            _ => None,
+        }
+    }
+
+    pub fn as_wire(self) -> &'static str {
+        match self {
+            Self::Midnight => "midnight",
+            Self::Arctic => "arctic",
+            Self::Aurora => "aurora",
+        }
+    }
+
+    pub fn is_dark(self) -> bool {
+        !matches!(self, Self::Arctic)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SearchEngine {
     #[default]
     Google,
@@ -351,7 +392,7 @@ fn looks_like_host_or_url(input: &str) -> bool {
     host.contains('.') && !host.starts_with('.') && !host.ends_with('.')
 }
 
-fn percent_encode_query(input: &str) -> String {
+pub(crate) fn percent_encode_query(input: &str) -> String {
     let mut out = String::with_capacity(input.len() + 8);
     for b in input.bytes() {
         match b {
@@ -527,19 +568,74 @@ mod tests {
         ));
         assert!(parse_authenticated_content_ipc(id, "secret123", "secret123:key:slot:0").is_none());
         assert!(matches!(
+            parse_authenticated_content_ipc(id, "secret123", "secret123:newtab:theme:midnight"),
+            Some(AppEvent::SetTheme(BrowserTheme::Midnight))
+        ));
+        assert!(matches!(
+            parse_authenticated_content_ipc(id, "secret123", "secret123:newtab:theme:arctic"),
+            Some(AppEvent::SetTheme(BrowserTheme::Arctic))
+        ));
+        assert!(matches!(
+            parse_authenticated_content_ipc(id, "secret123", "secret123:newtab:theme:aurora"),
+            Some(AppEvent::SetTheme(BrowserTheme::Aurora))
+        ));
+        assert!(matches!(
             parse_authenticated_content_ipc(id, "secret123", "secret123:newtab:theme:dark"),
-            Some(AppEvent::SetTheme(true))
+            Some(AppEvent::SetTheme(BrowserTheme::Midnight))
         ));
         assert!(matches!(
             parse_authenticated_content_ipc(id, "secret123", "secret123:newtab:theme:light"),
-            Some(AppEvent::SetTheme(false))
+            Some(AppEvent::SetTheme(BrowserTheme::Arctic))
         ));
         assert!(
             parse_authenticated_content_ipc(id, "secret123", "secret123:newtab:theme:auto")
                 .is_none()
         );
         assert!(
-            parse_authenticated_content_ipc(id, "secret123", "wrong:newtab:theme:dark").is_none()
+            parse_authenticated_content_ipc(id, "secret123", "wrong:newtab:theme:midnight")
+                .is_none()
         );
+        assert!(matches!(
+            parse_authenticated_content_ipc(id, "secret123", "secret123:newtab:engine:duckduckgo"),
+            Some(AppEvent::SetSearchEngine(SearchEngine::DuckDuckGo))
+        ));
+        assert!(matches!(
+            parse_authenticated_content_ipc(id, "secret123", "secret123:newtab:engine:bing"),
+            Some(AppEvent::SetSearchEngine(SearchEngine::Bing))
+        ));
+        assert!(
+            parse_authenticated_content_ipc(id, "secret123", "secret123:newtab:engine:yahoo")
+                .is_none()
+        );
+        assert!(
+            parse_authenticated_content_ipc(id, "secret123", "wrong:newtab:engine:google")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn parses_theme_ipc_messages() {
+        assert_eq!(BrowserTheme::default(), BrowserTheme::Arctic);
+        assert!(matches!(
+            parse_shell_ipc("theme:midnight"),
+            Some(AppEvent::SetTheme(BrowserTheme::Midnight))
+        ));
+        assert!(matches!(
+            parse_shell_ipc("theme:arctic"),
+            Some(AppEvent::SetTheme(BrowserTheme::Arctic))
+        ));
+        assert!(matches!(
+            parse_shell_ipc("theme:aurora"),
+            Some(AppEvent::SetTheme(BrowserTheme::Aurora))
+        ));
+        assert!(matches!(
+            parse_shell_ipc("theme:dark"),
+            Some(AppEvent::SetTheme(BrowserTheme::Midnight))
+        ));
+        assert!(matches!(
+            parse_shell_ipc("theme:light"),
+            Some(AppEvent::SetTheme(BrowserTheme::Arctic))
+        ));
+        assert!(parse_shell_ipc("theme:auto").is_none());
     }
 }

@@ -1,7 +1,7 @@
 use wry::Rect;
 use wry::dpi::{LogicalPosition, LogicalSize};
 
-pub const TOP_BAR_HEIGHT: f64 = 78.0;
+pub const TOP_BAR_HEIGHT: f64 = 92.0;
 pub const DEFAULT_SIDEBAR_WIDTH: f64 = 220.0;
 pub const MIN_SIDEBAR_WIDTH: f64 = 180.0;
 pub const MAX_SIDEBAR_WIDTH: f64 = 320.0;
@@ -104,7 +104,7 @@ mod tests {
 
         let content = layout.content_bounds();
         assert_eq!(content.position.to_logical::<f64>(1.0).x, 0.0);
-        assert_eq!(content.position.to_logical::<f64>(1.0).y, 78.0);
+        assert_eq!(content.position.to_logical::<f64>(1.0).y, 92.0);
     }
 
     #[test]

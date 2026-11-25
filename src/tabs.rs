@@ -2,9 +2,12 @@ use tao::event_loop::EventLoopProxy;
 use tao::window::Window;
 use wry::{Rect, WebContext};
 
-use crate::engine::{ContentEngine, content_data_dir};
+use crate::engine::{ContentAttachOptions, ContentEngine, content_data_dir};
 use crate::error::BrowserError;
-use crate::ipc::{AppEvent, INTERNAL_NEWTAB_URL, TabId, format_origin_display, is_internal_newtab};
+use crate::ipc::{
+    AppEvent, BrowserTheme, INTERNAL_NEWTAB_URL, TabId, format_origin_display, is_internal_blog,
+    is_internal_newtab,
+};
 use crate::shell::ShellTabSummary;
 
 pub trait TabRuntimeOps {
@@ -212,7 +215,7 @@ pub struct TabManager {
     // Drop all child WebView instances before dropping the shared WebContext.
     collection: TabCollection<ContentEngine>,
     next_id: u64,
-    is_dark: bool,
+    theme: BrowserTheme,
     context: WebContext,
     proxy: EventLoopProxy<AppEvent>,
 }
@@ -225,43 +228,53 @@ impl TabManager {
     ) -> Result<Self, BrowserError> {
         let mut context = WebContext::new(Some(content_data_dir()));
         let first_id = TabId(1);
-        let is_dark = false;
+        let theme = BrowserTheme::default();
         let first_engine = ContentEngine::attach(
             window,
-            first_id,
-            &mut context,
-            initial_bounds,
-            true,
-            is_dark,
-            proxy.clone(),
+            ContentAttachOptions {
+                tab_id: first_id,
+                context: &mut context,
+                bounds: initial_bounds,
+                visible: true,
+                is_dark: theme.is_dark(),
+                proxy: proxy.clone(),
+            },
         )?;
 
         Ok(Self {
             collection: TabCollection::new(first_id, first_engine, initial_bounds),
             next_id: 2,
-            is_dark,
+            theme,
             context,
             proxy,
         })
     }
 
-    pub fn set_dark_theme(&mut self, is_dark: bool) {
-        self.is_dark = is_dark;
-    }
-
-    pub fn sync_profile_prefs_all(&self, name: &str, engine: &str) {
+    pub fn set_theme(&mut self, theme: BrowserTheme) {
+        self.theme = theme;
+        let wire = theme.as_wire();
         for tab in self.collection.tabs() {
-            if is_internal_newtab(&tab.url) {
-                tab.engine.sync_profile_prefs(name, engine);
+            if is_internal_newtab(&tab.url) || is_internal_blog(&tab.url) {
+                tab.engine.sync_theme(wire);
             }
         }
     }
 
-    pub fn sync_profile_prefs_tab(&self, tab_id: TabId, name: &str, engine: &str) {
+    pub fn sync_internal_prefs_all(&self, engine: &str, theme: BrowserTheme) {
+        let wire = theme.as_wire();
+        for tab in self.collection.tabs() {
+            if is_internal_newtab(&tab.url) || is_internal_blog(&tab.url) {
+                tab.engine.sync_internal_prefs(engine, wire);
+            }
+        }
+    }
+
+    pub fn sync_internal_prefs_tab(&self, tab_id: TabId, engine: &str, theme: BrowserTheme) {
+        let wire = theme.as_wire();
         if let Some(tab) = self.collection.tabs().iter().find(|t| t.id == tab_id)
-            && is_internal_newtab(&tab.url)
+            && (is_internal_newtab(&tab.url) || is_internal_blog(&tab.url))
         {
-            tab.engine.sync_profile_prefs(name, engine);
+            tab.engine.sync_internal_prefs(engine, wire);
         }
     }
 
@@ -275,16 +288,7 @@ impl TabManager {
 
     pub fn create_tab(&mut self, window: &Window, activate: bool) -> Result<TabId, BrowserError> {
         let id = self.alloc_id();
-        let bounds = self.collection.bounds();
-        let engine = ContentEngine::attach(
-            window,
-            id,
-            &mut self.context,
-            bounds,
-            activate,
-            self.is_dark,
-            self.proxy.clone(),
-        )?;
+        let engine = self.attach_tab_engine(window, id, activate)?;
         self.collection.insert_tab(id, engine, activate);
         Ok(id)
     }
@@ -300,22 +304,33 @@ impl TabManager {
             Ok(false)
         } else {
             let replacement_id = self.alloc_id();
-            let bounds = self.collection.bounds();
-            let replacement = ContentEngine::attach(
-                window,
-                replacement_id,
-                &mut self.context,
-                bounds,
-                true,
-                self.is_dark,
-                self.proxy.clone(),
-            )?;
+            let replacement = self.attach_tab_engine(window, replacement_id, true)?;
             let old = self
                 .collection
                 .replace_last_tab(replacement_id, replacement);
             drop(old);
             Ok(true)
         }
+    }
+
+    fn attach_tab_engine(
+        &mut self,
+        window: &Window,
+        tab_id: TabId,
+        visible: bool,
+    ) -> Result<ContentEngine, BrowserError> {
+        let bounds = self.collection.bounds();
+        ContentEngine::attach(
+            window,
+            ContentAttachOptions {
+                tab_id,
+                context: &mut self.context,
+                bounds,
+                visible,
+                is_dark: self.theme.is_dark(),
+                proxy: self.proxy.clone(),
+            },
+        )
     }
 
     pub fn close_active_tab(&mut self, window: &Window) -> Result<bool, BrowserError> {

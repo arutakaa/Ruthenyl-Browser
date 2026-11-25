@@ -1,9 +1,9 @@
-# DESIGN.md: Ruthenyl UI Specification
+# DESIGN.md: Ruthenium UI Specification
 
 - **Status:** Normative UI source of truth
 - **Target platform:** Windows 11 desktop first (WebView2 content surface, Rust + Wry/Tao shell)
-- **Visual direction:** Ruthenyl Browser (Dual-tone deep-navy horizontal chrome `#0E1726` / `#172744` + curved connector into `#CFD9E8`, soft pastel mesh viewport `#F4F7FB`, Windows 11 native caption controls)
-- **Dial:** `ENERGY 2 / RHYTHM 2 / MOTION 1`
+- **Visual direction:** Ruthenium Browser (Two-row unified chrome: `44px` Floating Pill Tab Strip + `48px` Rounded Navigation & Pill Omnibox Toolbar, three synced themes with `Arctic Minimal` default `#e8eef6` / `#f8fafc`, plus `Midnight Ruthenium` `#080d1a` / `#0d1426` and `Nebula Aurora` `#070913` / `#0c1021`, Windows 11 native caption controls)
+- **Dial:** `ENERGY 1 / RHYTHM 1 / MOTION 1`
 
 ---
 
@@ -188,18 +188,18 @@ Colored glow shadows are forbidden across all surfaces.
 
 ## 6. Browser Window Layout & Responsive Chrome
 
-The window shell frames a native WebView2 content surface below a two-row `78px` horizontal header (`40px` top utility bar + `38px` curved tab bar) and an optional collapsible `220px` left workspace sidebar (closed by default).
+The window shell frames a native WebView2 content surface below a two-row `92px` horizontal header (`44px` Floating Pill Tab Strip + `48px` Rounded Navigation & Pill Omnibox Toolbar) and an optional collapsible `220px` left side panel (closed by default).
 
 ```text
 +-----------------------------------------------------------------------------+
-| [|v] [<] [>]    (drag)  [(Q) Cari di Google atau masukkan URL (R)]  (drag) [^][+][_][#][X]| 40px Row 1 (#0E1726)
-+----------------------------------+------------------------------------------+
-|  [G GitHub]  [M Gmail]  [F Figma] \      [Navigation]  [Bookmarks]    (B)   | 38px Row 2 (#172744 -> #CFD9E8)
-+------------------------------------+----------------------------------------+
+| (Tab 1)  (Tab 2)  [+]                (drag)                        [_][#][X]| 44px Row 1 (Tab Strip)
++-----------------------------------------------------------------------------+
+| / [<] [>] [R]  ((o) Cari di Google atau masukkan URL        (copy)) [|][*] \| 48px Row 2 (Toolbar)
++------------------+----------------------------------------------------------+
 | [Optional 220px  |                                                          |
-|  Ruang Kerja     |  Content Viewport (WebView2)                             |
-|  & Bookmarks     |  x: sidebar_w (0 default, 220 when open), y: 78px        |
-|  Sidebar #EEF3F9]|  w: win_w - sidebar_w, h: win_h - 78px                   |
+|  Side Panel      |  Content Viewport (WebView2)                             |
+|  Panel /         |  x: sidebar_w (0 default, 220 when open), y: 92px        |
+|  Setelan]        |  w: win_w - sidebar_w, h: win_h - 92px                   |
 +------------------+----------------------------------------------------------+
 ```
 
@@ -207,11 +207,11 @@ The window shell frames a native WebView2 content surface below a two-row `78px`
 
 - **Default / minimum window size:** `1280px x 800px` logical default; `520px x 360px` logical minimum so the top toolbar never crushes caption controls.
 - **Resize borders:** when using a custom frameless titlebar on Windows 11, preserve native DWM resize hit-testing (`4px` to `6px` invisible resize border when windowed; `0px` when maximized or fullscreen so pixels never bleed onto adjacent monitors).
-- **Content viewport rect:** occupies `x = sidebar_width`, `y = 78px`, `width = window_width - sidebar_width`, `height = window_height - 78px`.
-- **Two-row Ruthenyl Chrome (`40px` Row 1 + `38px` Row 2):**
-  - **Row 1 (`#0E1726`):** Sidebar toggle (`Ctrl+B`), Back (`Alt+Left`), Forward (`Alt+Right`), centered URL pill (`#232F42`, `max-width: 500px`, single crisp focus ring without inner input outline; displays quiet placeholder `"Cari di Google atau masukkan URL"` with subtle search magnifier on New Tab, `browser://blog` on internal pages, and lock/warning security state on external URLs, plus integrated Reload/Stop button), Share/Copy URL, New Tab (`+`), and native Windows 11 caption controls (`46px x 40px` Minimize, Maximize/Restore, `#C42B1C`-hover Close).
-  - **Row 2 (`38px` Dual-Tone Tab Bar):** Left `#172744` dark curved tab shelf (`border-bottom-right-radius: 18px` + concave `18px` fillet `::after`) hosting horizontal live WebView2 tabs with `#60A5FA` `2px` bottom active indicator; Right `#CFD9E8` utility bar hosting `Navigation`, `Bookmarks`, and interactive profile avatar button (`B` / dynamic user initial, toggles the `Profil` sidebar panel).
-  - **Collapsible Sidebar (`#EEF3F9`, `0px` default -> `220px` when toggled, `180px..320px` resizable):** Houses switchable views for `Ruang Kerja` (`Beranda`, `Tab Baru`), `Bookmarks`, and `Tab Terbuka`, plus the `Profil` panel (editable display name synced two-way with `Beranda`, default search engine selector defaulting to `Google`, and `localStorage` persistence); auto-closes cleanly below `640px` window width.
+- **Content viewport rect:** occupies `x = sidebar_width`, `y = 92px`, `width = window_width - sidebar_width`, `height = window_height - 92px`.
+- **Two-row Ruthenium Chrome (`44px` Row 1 + `48px` Row 2):**
+  - **Row 1 (Floating Pill Tab Strip, `44px`):** Floating `12px`-radius pill tabs (`#080d1a` Midnight / `#e8eef6` Arctic / `#070913` Aurora frame; active pill in `#131d36` / `#ffffff` / `#151c38` with subtle border), `+` New Tab pill (`8px` radius), drag strip, and native Windows 11 caption controls (`44px x 38px` Minimize, Maximize/Restore, `#e11d48`-hover Close).
+  - **Row 2 (Rounded Navigation & Pill Omnibox Toolbar, `48px`):** Rounded top-left/top-right toolbar (`16px` top radii, `#0d1426` / `#f8fafc` / `#0c1021`) containing Back (`Alt+Left`), Forward (`Alt+Right`), Reload/Stop (`Ctrl+R`/`Escape`), full-width `9999px`-radius Pill Omnibox with accent search/security badge and trailing Copy URL trigger, Side Panel toggle (`Ctrl+B`), and gear Settings trigger (`#btn-settings`).
+  - **Collapsible Side Panel (`0px` default -> `220px` when toggled, `180px..320px` resizable):** Houses switchable views for `Panel` (Open Tabs showing website favicon + title + domain, and persistent `Catatan Cepat` scratchpad; bookmarks/Markah omitted) and `Setelan` (`Arctic` [Default] | `Midnight` | `Aurora` 3-theme selector + Default Search Engine selector); auto-closes cleanly below `640px` window width.
 - **Overlay layering above WebView2:** because a child WebView2 renders in its own native `HWND` on Windows, transient overlays that overlap the content viewport (omnibox suggestion dropdown, Command Palette, context menus, Downloads popover, Find-in-Page bar) must render in an elevated host surface/webview layer above the content `HWND` (or temporarily reserve overlay hit bounds) so popovers are never clipped behind web page content.
 
 ### Auxiliary viewport overlays
@@ -383,20 +383,15 @@ Settings open as a standard internal tab (`browser://settings`, triggered via `C
 
 ## 13. Empty States, Loading States, and Error Views
 
-### New Tab / Ruthenyl Homepage (`browser://newtab`) & Ruthenyl Blog (`browser://blog`)
+### New Tab (`browser://newtab`) & Ruthenium Notes (`browser://blog`)
 
-- **Canvas:** Ruthenyl pastel mesh background (`#F4F7FB` base with soft warm-peach top-left and cool-sky top-right radial ambient gradients). WebView2 initializes its native background to `(244, 247, 251, 255)` (`Theme::Light`) so creating or switching tabs never flashes black or stark `#FFFFFF`.
-- **Composition (`max-width: 740px` centered inside viewport):**
-  - **Centered Search Pill (`max-width: 540px`, `border-radius: 16px`):** dark navy `Ru` square emblem (`#162746`) + frosted pill input (`"Cari di Google atau masukkan URL"`, `/` keyboard focus) routing directly into active-tab navigation via `window.__newtabNavigate(...)`.
-  - **6-Column Quick Access App Grid:** `Ruthenyl Blog` (`http://browser.localhost/blog`), `Gmail`, `GitHub`, `Notion`, `Figma`, and `Dribbble` as real `<a href>` same-tab links with crisp offline inline SVGs (`3` columns below `720px`).
-  - **`Papan Dasbor` (`3` cards desktop -> `1` column `< 640px`):**
-    1. `Cuaca`: toggles `20°C` / `68°F` (`localStorage` persisted), `Cerah`.
-    2. `Kalender`: displays live Indonesian weekday and date from `new Date()`.
-    3. `Tugas Hari Ini`: displays open task count (`3 Todo` default) with an interactive `Lihat` popover (`role="dialog"`, closable on `Escape` and outside click) to add, check/uncheck, or delete tasks.
-  - **Bottom Two-Column Row (`5fr / 7fr` desktop -> stacked `< 720px`):**
-    - Left: live Indonesian greeting (`Selamat Pagi/Siang/Sore/Malam, Budi` with inline name editor), `64x64px` live **Analog Clock SVG** paired with live tabular **Digital Clock**.
-    - Right (`Baru Saja Dilihat`): 3 clickable `<a href>` preview cards (`Medium`, `Twitter`, `Webflow`).
-- **Built-in `Ruthenyl Blog` (`http://browser.localhost/blog` -> `browser://blog`):** offline release-notes article linked directly from the `Ruthenyl Blog` tile with a `"Kembali ke Beranda"` link back to `browser://newtab`.
+- **Canvas & Themes:** Three glassmorphic ambient themes (`Arctic Minimal` light default `#edf3fa`, `Midnight Ruthenium` `#080d1a`, and `Nebula Aurora` `#070913`) persisted in `localStorage` (`ruthenium_ntp_theme_v2` / `ruthenium_ntp_dark_preset_v1`) and synchronized bi-directionally with browser chrome settings via `window.__syncTheme`. WebView2 initializes dark viewport backgrounds to `(8, 13, 26, 255)` and light viewport backgrounds to `(248, 250, 252, 255)`.
+- **Composition (`max-width: 672px` centered inside viewport):**
+  - **Top Right Widget:** Real-time Indonesian digital clock (`HH:MM` with `tabular-nums`) and formatted local date (`weekday, day month`) inside a glass pill (`no` static weather or fake blocker status chips).
+  - **Brand Header:** `72x72` hexagonal 3D `Facet R` emblem (`viewBox="0 0 120 120"`) with soft ambient glow and gentle float motion (guarded by `prefers-reduced-motion: no-preference`) paired with gradient `Ruthenium` display wordmark (`52px` `Space Grotesk`) and `Next-Gen Web Experience` subtitle.
+  - **Merged Google Search Card (`border-radius: 9999px` -> `24px 24px 0 0` + `0 0 24px 24px`) & Live Google Suggestions:** Interactive search-engine switcher cycling `Google`, `DuckDuckGo`, and `Bing` (synced to host via `window.__newtabSetSearchEngine` and `window.__syncSearchEngine`), combobox search input (`/` focus shortcut) with Google-style `✕` clear button, recent search history on empty focus with `Hapus` / `Hapus semua riwayat` controls, `65ms` debounced live suggestions backed by `browser://localhost/suggest` (`suggestqueries.google.com`) with trailing `↖` query-refine button and `Arrow`/`Tab`/`Enter`/`Escape` keyboard support, plus Chrome-style inline type-ahead completion in the top omnibox.
+  - **Shortcuts Grid:** Responsive 5-column `localStorage`-persisted shortcuts (`Ruthenium Notes`, `YouTube`, `GitHub`, `Gmail`, up to 10 items) with automatic website favicon resolution and clean letter-badge fallback, `+ Tambah` modal dialog (`Escape` closable), and per-shortcut remove action. No theme customizer button in the homepage footer (theme switching lives in the browser Settings panel).
+- **Built-in `Ruthenium Notes` (`http://browser.localhost/blog` -> `browser://blog`):** offline release-notes card matching Light/Dark theme with a `"Kembali ke Tab Baru"` link back to `browser://newtab`.
 - **Collection empty states (Downloads popover, History, Filtered Settings/Palette):** plain centered or left-aligned two-line text (`13px` `--fg-secondary` state + `12px` `--fg-muted` next action, e.g., `"No matching commands"` / `"Try a page title, URL, or browser action"`). Never render illustrations or fake sample items.
 
 ### Page loading states & anti-flash rules

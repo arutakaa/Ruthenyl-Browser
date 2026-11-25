@@ -7,8 +7,9 @@ use tao::window::Window;
 
 use crate::error::BrowserError;
 use crate::ipc::{
-    AppEvent, SearchEngine, format_origin_display, is_internal_newtab, map_window_shortcut,
-    resolve_navigation_input_with_engine, sanitize_profile_name,
+    AppEvent, BrowserTheme, SearchEngine, format_origin_display, is_internal_blog,
+    is_internal_newtab, map_window_shortcut, resolve_navigation_input_with_engine,
+    sanitize_profile_name,
 };
 use crate::layout::ShellLayout;
 use crate::shell::{ShellSyncPayload, ShellView};
@@ -27,7 +28,7 @@ struct BrowserRuntime {
     last_shortcut_at: Option<Instant>,
     window_focused: bool,
     shell_ready: bool,
-    is_dark: bool,
+    theme: BrowserTheme,
     search_engine: SearchEngine,
     profile_name: String,
 }
@@ -57,7 +58,7 @@ impl BrowserRuntime {
             is_compact: self.layout.is_compact(),
             is_maximized: self.window.is_maximized(),
             window_focused: self.window_focused,
-            is_dark: self.is_dark,
+            theme: self.theme.as_wire(),
             profile_name: &self.profile_name,
             search_engine: self.search_engine.as_wire(),
         };
@@ -67,9 +68,9 @@ impl BrowserRuntime {
     fn sync_window_title(&self) {
         let active = self.tabs.active_tab();
         let title = if is_internal_newtab(&active.url) || active.title.is_empty() {
-            "Ruthenyl".to_string()
+            "Ruthenium".to_string()
         } else {
-            format!("{} - Ruthenyl", active.title)
+            format!("{} - Ruthenium", active.title)
         };
         self.window.set_title(&title);
     }
@@ -111,7 +112,7 @@ impl BrowserRuntime {
             AppEvent::ShellReady => {
                 self.shell_ready = true;
                 self.tabs
-                    .sync_profile_prefs_all(&self.profile_name, self.search_engine.as_wire());
+                    .sync_internal_prefs_all(self.search_engine.as_wire(), self.theme);
                 self.sync_window_title();
                 self.sync_shell();
             }
@@ -226,18 +227,16 @@ impl BrowserRuntime {
                 self.apply_bounds();
                 self.sync_shell();
             }
-            AppEvent::SetTheme(is_dark) => {
-                if self.is_dark != is_dark {
-                    self.is_dark = is_dark;
-                    self.tabs.set_dark_theme(is_dark);
-                    self.sync_shell();
-                }
+            AppEvent::SetTheme(theme) => {
+                self.theme = theme;
+                self.tabs.set_theme(theme);
+                self.sync_shell();
             }
             AppEvent::SetSearchEngine(engine) => {
                 if self.search_engine != engine {
                     self.search_engine = engine;
                     self.tabs
-                        .sync_profile_prefs_all(&self.profile_name, self.search_engine.as_wire());
+                        .sync_internal_prefs_all(self.search_engine.as_wire(), self.theme);
                     self.sync_shell();
                 }
             }
@@ -245,8 +244,6 @@ impl BrowserRuntime {
                 let clean = sanitize_profile_name(&name);
                 if self.profile_name != clean {
                     self.profile_name = clean;
-                    self.tabs
-                        .sync_profile_prefs_all(&self.profile_name, self.search_engine.as_wire());
                     self.sync_shell();
                 }
             }
@@ -283,13 +280,13 @@ impl BrowserRuntime {
                 loading,
                 url,
             } => {
-                let is_newtab_done = !loading && is_internal_newtab(&url);
+                let is_internal_done = !loading && (is_internal_newtab(&url) || is_internal_blog(&url));
                 if self.tabs.handle_load_state(tab_id, loading, url) {
-                    if is_newtab_done {
-                        self.tabs.sync_profile_prefs_tab(
+                    if is_internal_done {
+                        self.tabs.sync_internal_prefs_tab(
                             tab_id,
-                            &self.profile_name,
                             self.search_engine.as_wire(),
+                            self.theme,
                         );
                     }
                     self.sync_window_title();
@@ -330,9 +327,9 @@ pub fn run() -> Result<(), BrowserError> {
         last_shortcut_at: None,
         window_focused: true,
         shell_ready: false,
-        is_dark: false,
+        theme: BrowserTheme::default(),
         search_engine: SearchEngine::default(),
-        profile_name: sanitize_profile_name("Budi"),
+        profile_name: String::new(),
     });
 
     event_loop.run(move |event, _, control_flow| {
